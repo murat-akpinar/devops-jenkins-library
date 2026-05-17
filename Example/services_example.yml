@@ -1,0 +1,34 @@
+app_name: my-project
+recipients: 'Takim_1, Takim_2'
+
+environments:
+  test:
+    ssh_port: 22          # opsiyonel: belirtilmezse varsayılan 22 kullanılır
+    deploy_targets:
+      - 192.168.1.10
+      - 192.168.1.11
+  preprod:
+    ssh_port: 2222        # farklı port örneği
+    deploy_targets:
+      - 192.168.2.10
+      - 192.168.2.11
+  prod:
+    # ssh_port belirtilmedi → otomatik 22
+    deploy_targets:
+      - 192.168.3.10
+      - 192.168.3.11
+
+services:
+  - name: backend
+    path: backend/
+    dockerfile: Dockerfile          # varsayılan: Dockerfile
+    image_name: myapp_backend       # proje imaj adı
+    env_file: backend/.env          # opsiyonel: build/deploy için .env
+    extra_files:
+      - { src: "default.conf", dest: "/app/my-project/default.conf" }
+
+  - name: frontend
+    path: frontend/
+    dockerfile: Dockerfile
+    image_name: myapp_frontend
+    env_file: frontend/.env
