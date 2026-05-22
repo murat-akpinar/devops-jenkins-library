@@ -1,125 +1,137 @@
+[![License: GPL v3](https://img.shields.io/badge/license-GPLv3-1a1a1a?style=flat-square&labelColor=1a1a1a&color=8a6f3a)](LICENSE)
+[![Built with Claude Code](https://img.shields.io/badge/built%20with-Claude%20Code-1a1a1a?style=flat-square&labelColor=1a1a1a&color=d8b66b)](https://claude.ai/claude-code)
+[![Status](https://img.shields.io/badge/status-stable-1a1a1a?style=flat-square&labelColor=1a1a1a&color=2d7a2d)](https://github.com/murat-akpinar/devops-jenkins-library)
+[![Jenkins](https://img.shields.io/badge/Jenkins-Shared%20Library-1a1a1a?style=flat-square&labelColor=1a1a1a&color=D33833&logo=jenkins&logoColor=fff)](https://www.jenkins.io/doc/book/pipeline/shared-libraries/)
+[![Groovy](https://img.shields.io/badge/Groovy-4.x-1a1a1a?style=flat-square&labelColor=1a1a1a&color=4298B8&logo=apachegroovy&logoColor=fff)](https://groovy-lang.org)
+[![Docker](https://img.shields.io/badge/Docker-compose-1a1a1a?style=flat-square&labelColor=1a1a1a&color=2496ED&logo=docker&logoColor=fff)](https://www.docker.com)
+[![SonarQube](https://img.shields.io/badge/SonarQube-analysis-1a1a1a?style=flat-square&labelColor=1a1a1a&color=4E9BCD&logo=sonarqube&logoColor=fff)](https://www.sonarsource.com/products/sonarqube/)
+[![Trivy](https://img.shields.io/badge/Trivy-security%20scan-1a1a1a?style=flat-square&labelColor=1a1a1a&color=1904DA)](https://trivy.dev)
+[![Nexus](https://img.shields.io/badge/Nexus-registry-1a1a1a?style=flat-square&labelColor=1a1a1a&color=1B75BB)](https://www.sonatype.com/products/sonatype-nexus-repository)
+
 # Jenkins Shared Library
 
-Jenkins CI/CD pipeline'larında kullanılan ortak fonksiyonlar ve yapılandırmaları içeren shared library.
+> Turkce dokumantasyon icin: **[README.TR.md](README.TR.md)**
 
-## İçindekiler
+A shared library for Jenkins CI/CD pipelines containing common functions and configurations.
 
-- [Hızlı Başlangıç](#hızlı-başlangıç)
-- [Dizin Yapısı](#dizin-yapısı)
-- [Kurulum](#kurulum)
-- [Kullanım](#kullanım)
-- [Fonksiyonlar](#fonksiyonlar)
-- [services.yml Yapılandırması](#servicesyml-yapılandırması)
+## Table of Contents
+
+- [Quick Start](#quick-start)
+- [Directory Structure](#directory-structure)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Functions](#functions)
+- [services.yml Configuration](#servicesyml-configuration)
 - [Multi-Server Deployment](#multi-server-deployment)
-- [Sorun Giderme](#sorun-giderme)
+- [Troubleshooting](#troubleshooting)
 
 ---
 
-## Hızlı Başlangıç
+## Quick Start
 
-### CI/CD Pipeline Öncesi Hazırlık
+### Pre-CI/CD Preparation
 
-CI/CD pipeline kurulumundan önce yapılması gereken hazırlık adımları için **mutlaka** `docs/01-cicd-hazirliklari.md` dosyasını okuyun:
+Before setting up a CI/CD pipeline, **you must** read `docs/01-cicd-hazirliklari.md` for the required preparation steps:
 
-- Network izinleri talep etme
-- Docker insecure registry ayarları
-- Nexus bağlantı yapılandırması
-- SSH anahtarı kurulumu
+- Requesting network permissions
+- Docker insecure registry settings
+- Nexus connection configuration
+- SSH key setup
 
-**[CI/CD Pipeline Öncesi Hazırlık Rehberi →](docs/01-cicd-hazirliklari.md)**
+**[CI/CD Pre-Pipeline Preparation Guide →](docs/01-cicd-hazirliklari.md)**
 
-### Yeni Projede Kullanım
+### Using in a New Project
 
-1. **Hazırlık adımlarını tamamlayın** (`docs/01-cicd-hazirliklari.md`)
-2. **Jenkinsfile oluşturun** (örnek: `Example/Jenkins_example.groovy`)
-3. **services.yml oluşturun** (örnek: `Example/services_example.yml`)
-4. **Jenkins'te pipeline job oluşturun**
+1. **Complete the preparation steps** (`docs/01-cicd-hazirliklari.md`)
+2. **Create a Jenkinsfile** (example: `Example/Jenkins_example.groovy`)
+3. **Create services.yml** (example: `Example/services_example.yml`)
+4. **Create a pipeline job in Jenkins**
 
-Detaylı adımlar için: **[Kullanım Kılavuzu →](docs/KULLANIM_KILAVUZU.md)**
+For detailed steps: **[Usage Guide →](docs/KULLANIM_KILAVUZU.md)**
 
 ---
 
-## Dizin Yapısı
+## Directory Structure
 
 ```
 devops-jenkins-library/
-├── vars/                              # Pipeline fonksiyonları (Groovy)
-│   ├── globalConfig.groovy            # Ortak yapılandırma (Nexus, Harbor, Trivy, SonarQube)
-│   ├── collectCredentials.groovy      # Credentials toplama
-│   ├── sonarQubeAnalysis.groovy       # SonarQube analizi
+├── vars/                              # Pipeline functions (Groovy)
+│   ├── globalConfig.groovy            # Shared config (Nexus, Harbor, Trivy, SonarQube)
+│   ├── collectCredentials.groovy      # Credentials collection
+│   ├── sonarQubeAnalysis.groovy       # SonarQube analysis
 │   ├── sonarQubeQualityGate.groovy    # SonarQube Quality Gate
-│   ├── checkTagOnNexus.groovy         # Nexus tag kontrolü
-│   ├── checkDiff.groovy               # Git diff kontrolü
+│   ├── checkTagOnNexus.groovy         # Nexus tag check
+│   ├── checkDiff.groovy               # Git diff check
 │   ├── buildAndPushService.groovy     # Docker build & push
-│   ├── pullService.groovy             # Sunucuya Docker image pull
-│   ├── runTestsInContainer.groovy     # Container'da test çalıştırma
-│   ├── deployService.groovy           # Deploy işlemi
-│   ├── trivyScan.groovy               # Trivy güvenlik taraması
-│   ├── trivyQualityGate.groovy        # Trivy Quality Gate kontrolü
-│   ├── sendEmailNotification.groovy   # E-posta bildirimi
-│   └── emailTeams.groovy              # Takım e-posta listesi
-├── Example/                           # Örnek dosyalar
-│   ├── Jenkins_example.groovy         # Tam Jenkinsfile örneği
-│   └── services_example.yml          # services.yml örneği
-├── docs/                              # Belgeler
-│   ├── 01-cicd-hazirliklari.md       # CI/CD öncesi hazırlık rehberi
-│   ├── 02-pipeline-kurulumu.md       # Pipeline kurulum adımları
-│   ├── 03-jenkins-plugin-kurulumu.md # Gerekli Jenkins eklentileri
-│   ├── KULLANIM_KILAVUZU.md          # Detaylı kullanım kılavuzu
-│   └── SSS.md                        # Sık sorulan sorular
-├── credentials_test.groovy            # Test ortamı credential'larını toplu yükler
-├── credentials_prod.groovy            # Prod ortamı credential'larını toplu yükler
-└── README.md                          # Bu dosya
+│   ├── pullService.groovy             # Docker image pull to server
+│   ├── runTestsInContainer.groovy     # Run tests in container
+│   ├── deployService.groovy           # Deploy operation
+│   ├── trivyScan.groovy               # Trivy security scan
+│   ├── trivyQualityGate.groovy        # Trivy Quality Gate check
+│   ├── sendEmailNotification.groovy   # Email notification
+│   └── emailTeams.groovy              # Team email list
+├── Example/                           # Example files
+│   ├── Jenkins_example.groovy         # Full Jenkinsfile example
+│   └── services_example.yml          # services.yml example
+├── docs/                              # Documentation
+│   ├── 01-cicd-hazirliklari.md       # Pre-CI/CD preparation guide
+│   ├── 02-pipeline-kurulumu.md       # Pipeline setup steps
+│   ├── 03-jenkins-plugin-kurulumu.md # Required Jenkins plugins
+│   ├── KULLANIM_KILAVUZU.md          # Detailed usage guide
+│   └── SSS.md                        # Frequently asked questions
+├── credentials_test.groovy            # Bulk load test environment credentials
+├── credentials_prod.groovy            # Bulk load prod environment credentials
+└── README.md                          # This file
 ```
 
 ---
 
-## Kurulum
+## Installation
 
-### 1. Jenkins'te Global Library Tanımlama
+### 1. Define the Global Library in Jenkins
 
 1. **Manage Jenkins** → **Configure System** → **Global Pipeline Libraries**
-2. **Global Untrusted Pipeline Libraries** altında **Add** butonuna tıklayın
-3. Aşağıdaki bilgileri girin:
+2. Click **Add** under **Global Untrusted Pipeline Libraries**
+3. Enter the following:
    - **Name**: `devops-jenkins-library`
    - **Default version**: `main`
    - **Retrieval method**: **Modern SCM**
    - **Source Code Management**: **Git**
-   - **Project Repository**: Bu repo'nun URL'i
-   - **Credentials**: Gerekirse repo erişim bilgileri
+   - **Project Repository**: URL of this repo
+   - **Credentials**: Repo access credentials if required
 
-### 2. Jenkins Credentials Tanımlama
+### 2. Define Jenkins Credentials
 
 **Manage Jenkins** → **Credentials** → **System** → **Global credentials** → **Add Credentials**
 
-| ID | Tür | Açıklama |
-|----|-----|----------|
-| `Nexus_Credentials` | Username with password | Nexus Docker registry kullanıcı adı ve şifresi |
-| `Harbor_Credentials` | Username with password | Harbor registry (opsiyonel, kullanılmıyorsa boş bırakın) |
+| ID | Type | Description |
+|----|------|-------------|
+| `Nexus_Credentials` | Username with password | Nexus Docker registry username and password |
+| `Harbor_Credentials` | Username with password | Harbor registry (optional, leave empty if not used) |
 
-> **Not:** ID'ler büyük/küçük harfe duyarlıdır. `globalConfig.groovy` dosyasındaki `NEXUS_CREDENTIAL_ID` değeriyle eşleşmelidir.
+> **Note:** IDs are case-sensitive and must match the `NEXUS_CREDENTIAL_ID` value in `globalConfig.groovy`.
 
-### 3. Gerekli Jenkins Eklentileri
+### 3. Required Jenkins Plugins
 
-Aşağıdaki eklentilerin Jenkins'te kurulu olması gerekmektedir:
+The following plugins must be installed in Jenkins:
 
-| Eklenti | Plugin ID | Neden Gerekli |
-|---------|-----------|---------------|
-| Pipeline (Workflow Aggregator) | `workflow-aggregator` | Declarative Pipeline ve `@Library` desteği |
-| Git | `git` | Shared library'yi Git'ten çekmek için |
+| Plugin | Plugin ID | Why Required |
+|--------|-----------|--------------|
+| Pipeline (Workflow Aggregator) | `workflow-aggregator` | Declarative Pipeline and `@Library` support |
+| Git | `git` | Fetching the shared library from Git |
 | Pipeline Utility Steps | `pipeline-utility-steps` | `readYaml`, `readFile`, `writeFile`, `fileExists` |
 | SonarQube Scanner | `sonar` | `withSonarQubeEnv()`, `waitForQualityGate()` |
-| Email Extension | `email-ext` | HTML e-posta bildirimleri (`emailext`) |
+| Email Extension | `email-ext` | HTML email notifications (`emailext`) |
 | Credentials Binding | `credentials-binding` | `withCredentials()`, `usernamePassword()` |
-| Credentials | `credentials` | Nexus/Harbor credential yönetimi |
+| Credentials | `credentials` | Nexus/Harbor credential management |
 
-Kurulum adımları ve sorun giderme için: **[docs/03-jenkins-plugin-kurulumu.md](docs/03-jenkins-plugin-kurulumu.md)**
+For installation steps and troubleshooting: **[docs/03-jenkins-plugin-kurulumu.md](docs/03-jenkins-plugin-kurulumu.md)**
 
 ---
 
-## Kullanım
+## Usage
 
-### Temel Kullanım
+### Basic Usage
 
 ```groovy
 @Library('devops-jenkins-library') _
@@ -128,9 +140,9 @@ pipeline {
     agent { label "linux" }
 
     parameters {
-        choice(name: 'ENVIRONMENT', choices: ['test', 'preprod', 'prod'], description: 'Deploy ortamını seçin')
-        booleanParam(name: 'FORCE_REBUILD', defaultValue: false, description: 'Tüm imajları zorla yeniden build et')
-        string(name: 'VERSION_TAG', defaultValue: 'test-v1.0', description: 'Deploy edilecek imaj tag')
+        choice(name: 'ENVIRONMENT', choices: ['test', 'preprod', 'prod'], description: 'Select deploy environment')
+        booleanParam(name: 'FORCE_REBUILD', defaultValue: false, description: 'Force rebuild all images')
+        string(name: 'VERSION_TAG', defaultValue: 'test-v1.0', description: 'Image tag to deploy')
     }
 
     environment {
@@ -149,7 +161,7 @@ pipeline {
                     env.NEXUS_CREDENTIAL_ID = CFG.NEXUS_CREDENTIAL_ID ?: 'Nexus_Credentials'
 
                     def servicesConfig = readYaml file: 'services.yml'
-                    env.APP            = servicesConfig.app_name
+                    env.APP             = servicesConfig.app_name
                     env.RECIPIENT_EMAIL = servicesConfig.recipients ?: ''
                     def envConfig = servicesConfig.environments?."${params.ENVIRONMENT}"
                     env.GLOBAL_TARGETS = envConfig?.deploy_targets
@@ -158,32 +170,32 @@ pipeline {
                 }
             }
         }
-        // Diğer stage'ler...
+        // Other stages...
     }
 }
 ```
 
-Tam örnek için: **[Example/Jenkins_example.groovy](Example/Jenkins_example.groovy)**
+Full example: **[Example/Jenkins_example.groovy](Example/Jenkins_example.groovy)**
 
 ---
 
-## Fonksiyonlar
+## Functions
 
 ### `globalConfig()`
 
-Ortak yapılandırmayı (Nexus, Harbor, SonarQube, Trivy) döndürür. `globalConfig.groovy` dosyasını kendi ortamınıza göre düzenleyin.
+Returns the shared configuration (Nexus, Harbor, SonarQube, Trivy). Edit `globalConfig.groovy` to match your environment.
 
-**Dönen Değer:**
+**Return value:**
 ```groovy
 [
-    // Nexus REST API (tag kontrol için)
+    // Nexus REST API (for tag checks)
     NEXUS_URL           : "http://YOUR_NEXUS_IP:8081",
-    // Nexus Docker registry (push/pull için)
+    // Nexus Docker registry (for push/pull)
     NEXUS_REGISTRY_URL  : "http://YOUR_NEXUS_IP:8090",
     REGISTRY_PATH       : "your-registry",
     NEXUS_CREDENTIAL_ID : "Nexus_Credentials",
 
-    // Harbor (opsiyonel — kullanılmıyorsa boş bırakın)
+    // Harbor (optional — leave empty if not used)
     HARBOR_URL          : "",
     HARBOR_REGISTRY_PATH: "",
     HARBOR_CREDENTIAL_ID: "",
@@ -202,15 +214,15 @@ Ortak yapılandırmayı (Nexus, Harbor, SonarQube, Trivy) döndürür. `globalCo
 
 ### `collectCredentials()`
 
-Pipeline `environment` bloğundaki credentials'ları otomatik olarak toplar.
+Automatically collects credentials from the pipeline `environment` block.
 
-**Dönen Değer:** `Map<String, String>`
+**Return value:** `Map<String, String>`
 
-**Özellikler:**
-- Sistem değişkenlerini otomatik filtreler (`JENKINS_*`, `BUILD_*`, `DO_*`, `GIT_*` vb.)
-- Manuel liste gerekmez
+**Features:**
+- Automatically filters system variables (`JENKINS_*`, `BUILD_*`, `DO_*`, `GIT_*`, etc.)
+- No manual list required
 
-**Kullanım:**
+**Usage:**
 ```groovy
 def credentialsMap = collectCredentials()
 deployService([
@@ -223,12 +235,12 @@ deployService([
 
 ### `sonarQubeAnalysis(serverName)`
 
-SonarQube kod analizi yapar.
+Runs SonarQube code analysis.
 
-**Parametreler:**
-- `serverName` (String): Jenkins'te tanımlı SonarQube server adı
+**Parameters:**
+- `serverName` (String): SonarQube server name as defined in Jenkins
 
-> Proje root dizininde `sonar-project.properties` dosyası olmalı.
+> A `sonar-project.properties` file must exist in the project root.
 
 ```groovy
 sonarQubeAnalysis(env.SONAR_SERVER)
@@ -238,7 +250,7 @@ sonarQubeAnalysis(env.SONAR_SERVER)
 
 ### `sonarQubeQualityGate()`
 
-SonarQube Quality Gate kontrolü yapar.
+Checks the SonarQube Quality Gate result.
 
 ```groovy
 sonarQubeQualityGate()
@@ -248,16 +260,16 @@ sonarQubeQualityGate()
 
 ### `checkTagOnNexus(serviceName, version, nexusUrl, registryPath[, credentialId])`
 
-Nexus registry'de belirtilen tag'in mevcut olup olmadığını kontrol eder.
+Checks whether the specified tag exists in the Nexus registry.
 
-**Parametreler:**
-- `serviceName` (String): Servis/imaj adı
-- `version` (String): Tag versiyonu
+**Parameters:**
+- `serviceName` (String): Service/image name
+- `version` (String): Tag version
 - `nexusUrl` (String): Nexus REST API URL
 - `registryPath` (String): Registry path
-- `credentialId` (String, opsiyonel): Jenkins credential ID (varsayılan: `'Nexus_Credentials'`)
+- `credentialId` (String, optional): Jenkins credential ID (default: `'Nexus_Credentials'`)
 
-**Dönen Değer:** `true` veya `false`
+**Return value:** `true` or `false`
 
 ```groovy
 def exists = checkTagOnNexus(imageName, env.VERSION, env.NEXUS_URL, env.REGISTRY_PATH, env.NEXUS_CREDENTIAL_ID)
@@ -267,14 +279,14 @@ def exists = checkTagOnNexus(imageName, env.VERSION, env.NEXUS_URL, env.REGISTRY
 
 ### `checkDiff(servicePath, prevCommit, currCommit)`
 
-Belirtilen path'te git diff kontrolü yapar.
+Checks for git diff at the specified path.
 
-**Parametreler:**
-- `servicePath` (String): Kontrol edilecek path (örn: `backend/`)
-- `prevCommit` (String): Önceki commit hash
-- `currCommit` (String): Mevcut commit hash
+**Parameters:**
+- `servicePath` (String): Path to check (e.g. `backend/`)
+- `prevCommit` (String): Previous commit hash
+- `currCommit` (String): Current commit hash
 
-**Dönen Değer:** `1` (değişiklik var) veya `0` (değişiklik yok)
+**Return value:** `1` (changes detected) or `0` (no changes)
 
 ```groovy
 def changed = checkDiff(svc.path, env.GIT_PREVIOUS_SUCCESSFUL_COMMIT, env.GIT_COMMIT)
@@ -284,22 +296,22 @@ def changed = checkDiff(svc.path, env.GIT_PREVIOUS_SUCCESSFUL_COMMIT, env.GIT_CO
 
 ### `buildAndPushService(config)`
 
-Docker imajını build edip Nexus ve opsiyonel olarak Harbor'a push eder.
+Builds a Docker image and pushes it to Nexus and optionally Harbor.
 
-**Parametreler (Map):**
+**Parameters (Map):**
 
-| Parametre | Zorunlu | Açıklama |
-|-----------|---------|----------|
-| `serviceName` | ✅ | Servis/imaj adı |
-| `version` | ✅ | Tag versiyonu |
-| `servicePath` | ✅ | Servis dizini (Docker context) |
-| `dockerfile` | ❌ | Dockerfile yolu (varsayılan: `Dockerfile`) |
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `serviceName` | ✅ | Service/image name |
+| `version` | ✅ | Tag version |
+| `servicePath` | ✅ | Service directory (Docker context) |
+| `dockerfile` | ❌ | Dockerfile path (default: `Dockerfile`) |
 | `nexusUrl` | ✅ | Nexus REST API URL |
-| `nexusRegistryUrl` | ❌ | Nexus Docker registry URL (varsayılan: `nexusUrl`) |
+| `nexusRegistryUrl` | ❌ | Nexus Docker registry URL (default: `nexusUrl`) |
 | `registryPath` | ✅ | Registry path |
-| `jenkinsRegistry` | ❌ | Harbor registry adresi (`HOST/PROJECT`) |
-| `envFile` | ❌ | .env dosyası yolu |
-| `nexusRepoCredentialId` | ❌ | Nexus credential ID (varsayılan: `NEXUS_CREDENTIAL_ID`) |
+| `jenkinsRegistry` | ❌ | Harbor registry address (`HOST/PROJECT`) |
+| `envFile` | ❌ | .env file path |
+| `nexusRepoCredentialId` | ❌ | Nexus credential ID (default: `NEXUS_CREDENTIAL_ID`) |
 | `harborCredentialId` | ❌ | Harbor credential ID |
 
 ```groovy
@@ -320,20 +332,20 @@ buildAndPushService([
 
 ### `pullService(config)`
 
-Sunucuya Docker imajını Nexus'tan pull eder ve local olarak tag'ler.
+Pulls a Docker image from Nexus to the target server and tags it locally.
 
-**Parametreler (Map):**
+**Parameters (Map):**
 
-| Parametre | Zorunlu | Açıklama |
-|-----------|---------|----------|
-| `serviceName` | ✅ | Servis adı |
-| `imageName` | ❌ | İmaj adı (varsayılan: `serviceName`) |
-| `version` | ✅ | Tag versiyonu |
-| `deployIp` | ✅ | Hedef sunucu IP |
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `serviceName` | ✅ | Service name |
+| `imageName` | ❌ | Image name (default: `serviceName`) |
+| `version` | ✅ | Tag version |
+| `deployIp` | ✅ | Target server IP |
 | `nexusUrl` | ✅ | Nexus URL |
 | `nexusRegistryUrl` | ❌ | Nexus Docker registry URL |
 | `registryPath` | ✅ | Registry path |
-| `sshUser` | ❌ | SSH kullanıcı adı (varsayılan: `your-user`) |
+| `sshUser` | ❌ | SSH username (default: `your-user`) |
 | `nexusCredentialId` | ❌ | Nexus credential ID |
 
 ```groovy
@@ -353,16 +365,16 @@ pullService([
 
 ### `runTestsInContainer(config)`
 
-Container içinde testleri çalıştırır.
+Runs tests inside a container.
 
-**Parametreler (Map):**
-- `serviceName` (String): Servis/imaj adı
-- `version` (String): Tag versiyonu
+**Parameters (Map):**
+- `serviceName` (String): Service/image name
+- `version` (String): Tag version
 - `nexusUrl` (String): Nexus URL
-- `nexusRegistryUrl` (String, opsiyonel): Nexus Docker registry URL
+- `nexusRegistryUrl` (String, optional): Nexus Docker registry URL
 - `registryPath` (String): Registry path
-- `deployIp` (String): Test sunucusu IP
-- `testCommand` (String): Test komutu
+- `deployIp` (String): Test server IP
+- `testCommand` (String): Test command
 
 ```groovy
 runTestsInContainer([
@@ -380,27 +392,27 @@ runTestsInContainer([
 
 ### `deployService(config)`
 
-Servisi sunucuya deploy eder.
+Deploys a service to the target server.
 
-**Parametreler (Map):**
+**Parameters (Map):**
 
-| Parametre | Zorunlu | Açıklama |
-|-----------|---------|----------|
-| `serviceName` | ✅ | Servis adı |
-| `version` | ✅ | Tag versiyonu |
-| `appName` | ✅ | Uygulama adı (deploy path: `/app/<appName>/`) |
-| `deployIp` | ✅ | Deploy sunucusu IP |
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `serviceName` | ✅ | Service name |
+| `version` | ✅ | Tag version |
+| `appName` | ✅ | Application name (deploy path: `/app/<appName>/`) |
+| `deployIp` | ✅ | Deploy server IP |
 | `nexusUrl` | ✅ | Nexus URL |
 | `registryPath` | ✅ | Registry path |
-| `dockerComposeFile` | ❌ | Docker Compose dosyası (varsayılan: `docker-compose.yml`) |
-| `dockerComposeRemoteFile` | ❌ | Uzakta hangi adla saklanacağı |
-| `envFile` | ❌ | .env dosyası yolu |
-| `extraFiles` | ❌ | Ek dosya/dizin listesi |
-| `extraEnvVars` | ❌ | Ek environment değişkenleri (credentials) |
-| `shouldPull` | ❌ | Docker imajını pull et (varsayılan: `false`) |
-| `imageName` | ❌ | Docker imaj adı (varsayılan: `serviceName`) |
-| `sshUser` | ❌ | SSH kullanıcı adı (varsayılan: `your-user`) |
-| `runCompose` | ❌ | `docker compose up -d` çalıştır (varsayılan: `true`) |
+| `dockerComposeFile` | ❌ | Docker Compose file (default: `docker-compose.yml`) |
+| `dockerComposeRemoteFile` | ❌ | Name to use on the remote server |
+| `envFile` | ❌ | .env file path |
+| `extraFiles` | ❌ | Additional files/directories list |
+| `extraEnvVars` | ❌ | Extra environment variables (credentials) |
+| `shouldPull` | ❌ | Pull Docker image (default: `false`) |
+| `imageName` | ❌ | Docker image name (default: `serviceName`) |
+| `sshUser` | ❌ | SSH username (default: `your-user`) |
+| `runCompose` | ❌ | Run `docker compose up -d` (default: `true`) |
 
 ```groovy
 deployService([
@@ -421,26 +433,26 @@ deployService([
 ])
 ```
 
-**extraFiles Formatları:**
+**extraFiles Formats:**
 ```yaml
 extra_files:
   - default.conf                    # → /app/myapp/default.conf
   - nginx/nginx.conf                # → /app/myapp/nginx.conf (basename)
-  - backend                         # → /app/myapp/backend/ (dizin)
-  - src: webrtc/config.env          # Map formatı
-    dest: /app/myapp/config.env     # Özel hedef path
+  - backend                         # → /app/myapp/backend/ (directory)
+  - src: webrtc/config.env          # Map format
+    dest: /app/myapp/config.env     # Custom destination path
 ```
 
 ---
 
 ### `trivyScan(tag)`
 
-Build edilen imajlarda Trivy güvenlik taraması başlatır. Yalnızca `DO_` flag'i `'1'` olan (build edilmiş) servisler taranır.
+Triggers a Trivy security scan on built images. Only services whose `DO_` flag is `'1'` (built) are scanned.
 
-**Parametreler:**
-- `tag` (String): Taranacak imaj tag'i
+**Parameters:**
+- `tag` (String): Image tag to scan
 
-> `services.yml` dosyası proje root'unda olmalı.
+> A `services.yml` file must exist in the project root.
 
 ```groovy
 trivyScan(env.VERSION)
@@ -450,36 +462,36 @@ trivyScan(env.VERSION)
 
 ### `trivyQualityGate(projectName, grade)`
 
-Trivy Dashboard API'yi sorgulayarak projenin güvenlik notunu kontrol eder.
+Queries the Trivy Dashboard API to check the security grade of the project.
 
-**Parametreler:**
-- `projectName` (String): Trivy Dashboard'daki proje adı (genellikle `env.APP`)
-- `grade` (String, opsiyonel): Minimum geçer not (varsayılan: `'C'`)
+**Parameters:**
+- `projectName` (String): Project name in Trivy Dashboard (usually `env.APP`)
+- `grade` (String, optional): Minimum passing grade (default: `'C'`)
 
-**Not Skalası:** `A` (en iyi) → `B` → `C` → `D` → `F` (en kötü)
+**Grade scale:** `A` (best) → `B` → `C` → `D` → `F` (worst)
 
 ```groovy
-trivyQualityGate(env.APP, 'C')  // A, B, C geçer; D, F pipeline'ı durdurur
-trivyQualityGate(env.APP, 'D')  // A, B, C, D geçer; sadece F durdurur
+trivyQualityGate(env.APP, 'C')  // A, B, C pass; D, F fail the pipeline
+trivyQualityGate(env.APP, 'D')  // A, B, C, D pass; only F fails
 ```
 
 ---
 
 ### `sendEmailNotification(config)`
 
-Pipeline sonuçlarını HTML e-posta ile bildirir. `emailTeams()` ile tanımlı takım anahtarlarını otomatik olarak e-posta adreslerine çevirir.
+Sends HTML email notifications for pipeline results. Automatically resolves team keys defined via `emailTeams()` to email addresses.
 
-**Parametreler (Map):**
-- `status` (String): `'success'`, `'failure'` veya `'aborted'`
-- `appName` (String): Uygulama adı
-- `recipientEmail` (String): Alıcı adresi veya `emailTeams()` anahtarı (virgülle birden fazla)
-- `nexusUrl` (String, opsiyonel): Nexus URL
+**Parameters (Map):**
+- `status` (String): `'success'`, `'failure'`, or `'aborted'`
+- `appName` (String): Application name
+- `recipientEmail` (String): Recipient address or `emailTeams()` key (comma-separated for multiple)
+- `nexusUrl` (String, optional): Nexus URL
 
 ```groovy
 sendEmailNotification([
     status        : 'success',
     appName       : env.APP,
-    recipientEmail: env.RECIPIENT_EMAIL,  // örn: 'Takim_1, Takim_2'
+    recipientEmail: env.RECIPIENT_EMAIL,  // e.g. 'Team_1, Team_2'
     nexusUrl      : env.NEXUS_URL
 ])
 ```
@@ -488,36 +500,36 @@ sendEmailNotification([
 
 ### `emailTeams()`
 
-Takım adı → e-posta adresi eşlemesini döndürür. `sendEmailNotification()` tarafından otomatik kullanılır.
+Returns a map of team name → email address. Used automatically by `sendEmailNotification()`.
 
-**Dönen Değer:** `Map<String, String>`
+**Return value:** `Map<String, String>`
 
-`emailTeams.groovy` dosyasını takım listesi ve e-posta adresleriyle doldurun:
+Fill in `emailTeams.groovy` with your team list and email addresses:
 
 ```groovy
 def call() {
     return [
-        'Takim_1': 'dev1@company.com, dev2@company.com',
-        'Takim_2': 'ops@company.com',
+        'Team_1': 'dev1@company.com, dev2@company.com',
+        'Team_2': 'ops@company.com',
     ]
 }
 ```
 
-`services.yml`'de `recipients: 'Takim_1, Takim_2'` ile kullanılır.
+Used in `services.yml` with `recipients: 'Team_1, Team_2'`.
 
 ---
 
-## services.yml Yapılandırması
+## services.yml Configuration
 
-`services.yml` projenin yapılandırmasını, ortamlarını ve servislerini tanımlar.
+`services.yml` defines the project configuration, environments, and services.
 
-### Tam Yapı
+### Full Structure
 
 ```yaml
-app_name: my-project                   # Uygulama adı (deploy path: /app/my-project/)
-recipients: 'Takim_1, Takim_2'         # E-posta alıcıları (emailTeams anahtarı veya direkt adres)
+app_name: my-project                   # Application name (deploy path: /app/my-project/)
+recipients: 'Team_1, Team_2'           # Email recipients (emailTeams key or direct address)
 
-environments:                          # Ortam başına deploy hedefleri
+environments:                          # Deploy targets per environment
   test:
     deploy_targets:
       - 192.168.1.10
@@ -530,17 +542,17 @@ environments:                          # Ortam başına deploy hedefleri
       - 192.168.3.10
 
 services:
-  - name: backend                      # Servis adı (zorunlu)
-    path: backend/                     # Servis dizini — git diff için (zorunlu)
-    dockerfile: Dockerfile             # Dockerfile yolu (zorunlu)
-    image_name: myapp_backend          # Docker imaj adı (zorunlu)
-    env_file: backend/.env             # .env dosyası yolu (opsiyonel)
-    docker_compose_file: docker-compose.yml       # Compose dosyası (opsiyonel)
-    docker_compose_remote_file: docker-compose.yml # Uzakta hangi adla (opsiyonel)
-    extra_files:                       # Ek dosya/dizin listesi (opsiyonel)
+  - name: backend                      # Service name (required)
+    path: backend/                     # Service directory — for git diff (required)
+    dockerfile: Dockerfile             # Dockerfile path (required)
+    image_name: myapp_backend          # Docker image name (required)
+    env_file: backend/.env             # .env file path (optional)
+    docker_compose_file: docker-compose.yml       # Compose file (optional)
+    docker_compose_remote_file: docker-compose.yml # Remote file name (optional)
+    extra_files:                       # Additional files/directories (optional)
       - { src: "default.conf", dest: "/app/my-project/default.conf" }
-    ssh_user: your-user                # SSH kullanıcı adı (opsiyonel)
-    test_command: "npm test"           # Test komutu (opsiyonel)
+    ssh_user: your-user                # SSH username (optional)
+    test_command: "npm test"           # Test command (optional)
 
   - name: frontend
     path: frontend/
@@ -549,42 +561,42 @@ services:
     env_file: frontend/.env
 ```
 
-### Alan Açıklamaları
+### Field Reference
 
-**Üst Seviye Alanlar:**
+**Top-level Fields:**
 
-| Alan | Zorunlu | Açıklama |
-|------|---------|----------|
-| `app_name` | ✅ | Uygulama adı (pipeline `env.APP` olarak okunur) |
-| `recipients` | ❌ | E-posta alıcıları (virgülle ayrılmış takım anahtarı veya adres) |
-| `environments` | ✅ | Ortam başına deploy hedefleri |
+| Field | Required | Description |
+|-------|----------|-------------|
+| `app_name` | ✅ | Application name (read as `env.APP` in the pipeline) |
+| `recipients` | ❌ | Email recipients (comma-separated team keys or addresses) |
+| `environments` | ✅ | Deploy targets per environment |
 
-**Servis Alanları:**
+**Service Fields:**
 
-| Alan | Zorunlu | Açıklama |
-|------|---------|----------|
-| `name` | ✅ | Servis adı |
-| `path` | ✅ | Servis dizini (git diff için) |
-| `dockerfile` | ✅ | Dockerfile yolu |
-| `image_name` | ✅ | Docker imaj adı |
-| `env_file` | ❌ | .env dosyası yolu (ilk servis için Git'ten kopyalanır) |
-| `docker_compose_file` | ❌ | Compose dosyası yolu |
-| `docker_compose_remote_file` | ❌ | Sunucuda hangi adla saklanacağı |
-| `extra_files` | ❌ | Ek dosya/dizin listesi |
-| `ssh_user` | ❌ | SSH kullanıcı adı |
-| `test_command` | ❌ | Test komutu (Run Tests stage'inde çalıştırılır) |
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | ✅ | Service name |
+| `path` | ✅ | Service directory (for git diff) |
+| `dockerfile` | ✅ | Dockerfile path |
+| `image_name` | ✅ | Docker image name |
+| `env_file` | ❌ | .env file path (copied from Git for the first service) |
+| `docker_compose_file` | ❌ | Compose file path |
+| `docker_compose_remote_file` | ❌ | Name to use on the remote server |
+| `extra_files` | ❌ | Additional files/directories list |
+| `ssh_user` | ❌ | SSH username |
+| `test_command` | ❌ | Test command (run in the Run Tests stage) |
 
-### .env Dosyası Yönetimi
+### .env File Management
 
-- **İlk servis:** `env_file` belirtilmişse Git'teki dosya kullanılır; `VERSION` ve credentials eklenir/güncellenir
-- **Diğer servisler:** Sunucudaki mevcut `.env` okunur, sadece `VERSION` güncellenir
-- Tüm servisler `/app/<app_name>/.env` ortak dosyasını kullanır
+- **First service:** If `env_file` is specified, the file from Git is used; `VERSION` and credentials are added/updated
+- **Other services:** The existing `.env` on the server is read; only `VERSION` is updated
+- All services share the common `/app/<app_name>/.env` file
 
 ---
 
 ## Multi-Server Deployment
 
-Deploy hedefleri `services.yml`'deki `environments` bölümünden okunur:
+Deploy targets are read from the `environments` section of `services.yml`:
 
 ```yaml
 environments:
@@ -597,51 +609,51 @@ environments:
       - 192.168.3.10
 ```
 
-Pipeline, seçilen `ENVIRONMENT` parametresine göre (`test`, `preprod`, `prod`) ilgili `deploy_targets` listesini kullanır. Tüm hedeflere sırayla deploy yapılır.
+The pipeline uses the `deploy_targets` list for the selected `ENVIRONMENT` parameter (`test`, `preprod`, `prod`) and deploys to all targets sequentially.
 
 ---
 
-## Sorun Giderme
+## Troubleshooting
 
-**services.yml bulunamadı:**
-- Dosyanın proje root dizininde olduğundan emin olun
-- Git'e commit edildiğinden emin olun
+**services.yml not found:**
+- Ensure the file is in the project root directory
+- Ensure it has been committed to Git
 
-**Shared library bulunamadı:**
+**Shared library not found:**
 - Jenkins → Manage Jenkins → Configure System → Global Pipeline Libraries
-- `devops-jenkins-library` tanımlı mı kontrol edin
+- Check that `devops-jenkins-library` is defined
 
-**readYaml hatası:**
-- Pipeline Utility Steps plugin yüklü mü kontrol edin
+**readYaml error:**
+- Check that the Pipeline Utility Steps plugin is installed
 
-**extra_files kopyalanmıyor:**
-- `services.yml`'de `extra_files` tanımlı mı kontrol edin
-- Log'larda `📁 extra file/dizin kopyalanacak...` mesajını kontrol edin
+**extra_files not being copied:**
+- Check that `extra_files` is defined in `services.yml`
+- Check logs for the `extra file/directory will be copied...` message
 
-Detaylı sorun giderme için: **[docs/SSS.md](docs/SSS.md)**
-
----
-
-## Belgeler
-
-- **[docs/01-cicd-hazirliklari.md](docs/01-cicd-hazirliklari.md)** — CI/CD pipeline öncesi hazırlık rehberi
-- **[docs/02-pipeline-kurulumu.md](docs/02-pipeline-kurulumu.md)** — Pipeline kurulum adımları
-- **[docs/03-jenkins-plugin-kurulumu.md](docs/03-jenkins-plugin-kurulumu.md)** — Gerekli Jenkins eklentileri ve yapılandırma
-- **[docs/KULLANIM_KILAVUZU.md](docs/KULLANIM_KILAVUZU.md)** — Detaylı kullanım kılavuzu
-- **[docs/SSS.md](docs/SSS.md)** — Sık sorulan sorular
-- **[Example/Jenkins_example.groovy](Example/Jenkins_example.groovy)** — Tam Jenkinsfile örneği
-- **[Example/services_example.yml](Example/services_example.yml)** — services.yml örneği
+For detailed troubleshooting: **[docs/SSS.md](docs/SSS.md)**
 
 ---
 
-## Katkıda Bulunma
+## Documentation
 
-1. Değişikliklerinizi yapın
-2. Test edin
-3. Pull Request oluşturun
+- **[docs/01-cicd-hazirliklari.md](docs/01-cicd-hazirliklari.md)** — Pre-CI/CD pipeline preparation guide
+- **[docs/02-pipeline-kurulumu.md](docs/02-pipeline-kurulumu.md)** — Pipeline setup steps
+- **[docs/03-jenkins-plugin-kurulumu.md](docs/03-jenkins-plugin-kurulumu.md)** — Required Jenkins plugins and configuration
+- **[docs/KULLANIM_KILAVUZU.md](docs/KULLANIM_KILAVUZU.md)** — Detailed usage guide
+- **[docs/SSS.md](docs/SSS.md)** — Frequently asked questions
+- **[Example/Jenkins_example.groovy](Example/Jenkins_example.groovy)** — Full Jenkinsfile example
+- **[Example/services_example.yml](Example/services_example.yml)** — services.yml example
 
 ---
 
-## Lisans
+## Contributing
 
-Bu proje kurumsal kullanım içindir.
+1. Make your changes
+2. Test them
+3. Open a Pull Request
+
+---
+
+## License
+
+This project is for corporate use.
