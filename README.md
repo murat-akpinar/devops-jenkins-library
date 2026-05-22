@@ -31,23 +31,23 @@ A shared library for Jenkins CI/CD pipelines containing common functions and con
 
 ### Pre-CI/CD Preparation
 
-Before setting up a CI/CD pipeline, **you must** read `docs/01-cicd-hazirliklari.md` for the required preparation steps:
+Before setting up a CI/CD pipeline, **you must** read `docs/01-cicd-preparation.md` for the required preparation steps:
 
 - Requesting network permissions
 - Docker insecure registry settings
 - Nexus connection configuration
 - SSH key setup
 
-**[CI/CD Pre-Pipeline Preparation Guide →](docs/01-cicd-hazirliklari.md)**
+**[CI/CD Pre-Pipeline Preparation Guide →](docs/01-cicd-preparation.md)**
 
 ### Using in a New Project
 
-1. **Complete the preparation steps** (`docs/01-cicd-hazirliklari.md`)
+1. **Complete the preparation steps** (`docs/01-cicd-preparation.md`)
 2. **Create a Jenkinsfile** (example: `Example/Jenkins_example.groovy`)
 3. **Create services.yml** (example: `Example/services_example.yml`)
 4. **Create a pipeline job in Jenkins**
 
-For detailed steps: **[Usage Guide →](docs/KULLANIM_KILAVUZU.md)**
+For detailed steps: **[Usage Guide →](docs/USAGE_GUIDE.md)**
 
 ---
 
@@ -125,7 +125,7 @@ The following plugins must be installed in Jenkins:
 | Credentials Binding | `credentials-binding` | `withCredentials()`, `usernamePassword()` |
 | Credentials | `credentials` | Nexus/Harbor credential management |
 
-For installation steps and troubleshooting: **[docs/03-jenkins-plugin-kurulumu.md](docs/03-jenkins-plugin-kurulumu.md)**
+For installation steps and troubleshooting: **[docs/03-jenkins-plugin-installation.md](docs/03-jenkins-plugin-installation.md)**
 
 ---
 
@@ -630,17 +630,17 @@ The pipeline uses the `deploy_targets` list for the selected `ENVIRONMENT` param
 - Check that `extra_files` is defined in `services.yml`
 - Check logs for the `extra file/directory will be copied...` message
 
-For detailed troubleshooting: **[docs/SSS.md](docs/SSS.md)**
+For detailed troubleshooting: **[docs/FAQ.md](docs/FAQ.md)**
 
 ---
 
 ## Documentation
 
-- **[docs/01-cicd-hazirliklari.md](docs/01-cicd-hazirliklari.md)** — Pre-CI/CD pipeline preparation guide
-- **[docs/02-pipeline-kurulumu.md](docs/02-pipeline-kurulumu.md)** — Pipeline setup steps
-- **[docs/03-jenkins-plugin-kurulumu.md](docs/03-jenkins-plugin-kurulumu.md)** — Required Jenkins plugins and configuration
-- **[docs/KULLANIM_KILAVUZU.md](docs/KULLANIM_KILAVUZU.md)** — Detailed usage guide
-- **[docs/SSS.md](docs/SSS.md)** — Frequently asked questions
+- **[docs/01-cicd-preparation.md](docs/01-cicd-preparation.md)** — Pre-CI/CD pipeline preparation guide
+- **[docs/02-pipeline-setup.md](docs/02-pipeline-setup.md)** — Pipeline setup steps
+- **[docs/03-jenkins-plugin-installation.md](docs/03-jenkins-plugin-installation.md)** — Required Jenkins plugins and configuration
+- **[docs/USAGE_GUIDE.md](docs/USAGE_GUIDE.md)** — Detailed usage guide
+- **[docs/FAQ.md](docs/FAQ.md)** — Frequently asked questions
 - **[Example/Jenkins_example.groovy](Example/Jenkins_example.groovy)** — Full Jenkinsfile example
 - **[Example/services_example.yml](Example/services_example.yml)** — services.yml example
 

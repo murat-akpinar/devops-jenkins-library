@@ -1,47 +1,47 @@
-# Jenkins Shared Library - Kullanım Kılavuzu
+# Jenkins Shared Library - Usage Guide
 
-> For English documentation: **[USAGE_GUIDE.md](./USAGE_GUIDE.md)**
+> Turkce dokumantasyon icin: **[KULLANIM_KILAVUZU.md](./KULLANIM_KILAVUZU.md)**
 
-Bu kılavuz, Jenkins Shared Library'yi yeni bir projede nasıl kullanacağınızı **adım adım** açıklar.
+This guide explains **step by step** how to use the Jenkins Shared Library in a new project.
 
-## İçindekiler
+## Table of Contents
 
-- [Önkoşullar](#önkoşullar)
-- [1. Adım: services.yml Oluşturma](#1-adım-servicesyml-oluşturma)
-- [2. Adım: Jenkinsfile Oluşturma](#2-adım-jenkinsfile-oluşturma)
-- [3. Adım: sonar-project.properties Oluşturma](#3-adım-sonar-projectproperties-oluşturma)
-- [4. Adım: Docker Compose Dosyası](#4-adım-docker-compose-dosyası)
-- [5. Adım: Jenkins'te Pipeline Job Oluşturma](#5-adım-jenkinste-pipeline-job-oluşturma)
-- [6. Adım: İlk Build](#6-adım-ilk-build)
-- [Örnek Senaryolar](#örnek-senaryolar)
-- [Projeye Özel Ayarlar](#projeye-özel-ayarlar)
-
----
-
-## Önkoşullar
-
-CI/CD pipeline kurulumuna başlamadan önce aşağıdakilerin hazır olduğundan emin olun:
-
-1. **CI/CD Pipeline Öncesi Hazırlık** — `01-cicd-hazirliklari.md` dosyasındaki tüm adımlar tamamlanmış olmalı
-2. **Jenkins'te Global Library Tanımlı** — `devops-jenkins-library` tanımlı olmalı
-3. **Pipeline Utility Steps Plugin Yüklü** — YAML okuma için gerekli
-4. **Projede Git Repository Var** — Kod Git'te olmalı
-
-**[CI/CD Pipeline Öncesi Hazırlık Rehberi →](./01-cicd-hazirliklari.md)**
+- [Prerequisites](#prerequisites)
+- [Step 1: Create services.yml](#step-1-create-servicesyml)
+- [Step 2: Create the Jenkinsfile](#step-2-create-the-jenkinsfile)
+- [Step 3: Create sonar-project.properties](#step-3-create-sonar-projectproperties)
+- [Step 4: Docker Compose File](#step-4-docker-compose-file)
+- [Step 5: Create a Pipeline Job in Jenkins](#step-5-create-a-pipeline-job-in-jenkins)
+- [Step 6: First Build](#step-6-first-build)
+- [Example Scenarios](#example-scenarios)
+- [Project-Specific Settings](#project-specific-settings)
 
 ---
 
-## 1. Adım: services.yml Oluşturma
+## Prerequisites
 
-Projenizin **root dizininde** `services.yml` dosyası oluşturun. Bu dosya uygulama adını, ortam yapılandırmasını ve servis listesini tanımlar.
+Before starting the CI/CD pipeline setup, make sure the following are ready:
 
-### Temel services.yml Yapısı
+1. **CI/CD Pre-Setup Completed** — All steps in `01-cicd-preparation.md` must be done
+2. **Global Library Defined in Jenkins** — `devops-jenkins-library` must be registered
+3. **Pipeline Utility Steps Plugin Installed** — Required for YAML reading
+4. **Project Has a Git Repository** — Code must be in Git
+
+**[CI/CD Pre-Setup Guide →](./01-cicd-preparation.md)**
+
+---
+
+## Step 1: Create services.yml
+
+Create a `services.yml` file in your project's **root directory**. This file defines the application name, environment configuration, and service list.
+
+### Basic services.yml Structure
 
 ```yaml
-app_name: my-project                   # Uygulama adı — deploy path: /app/my-project/
-recipients: 'Takim_1, Takim_2'         # E-posta alıcıları (emailTeams anahtarı veya direkt adres)
+app_name: my-project                   # Application name — deploy path: /app/my-project/
+recipients: 'Team_1, Team_2'           # Email recipients (emailTeams key or direct address)
 
-environments:                          # Ortam başına deploy hedefleri
+environments:                          # Deploy targets per environment
   test:
     deploy_targets:
       - 192.168.1.10
@@ -53,15 +53,15 @@ environments:                          # Ortam başına deploy hedefleri
       - 192.168.3.10
 
 services:
-  - name: backend                      # Servis adı (zorunlu)
-    path: backend/                     # Servis dizini — git diff için (zorunlu)
-    dockerfile: Dockerfile             # Dockerfile yolu (zorunlu)
-    image_name: myapp_backend          # Docker imaj adı (zorunlu)
-    env_file: backend/.env             # .env dosyası yolu (opsiyonel)
+  - name: backend                      # Service name (required)
+    path: backend/                     # Service directory — for git diff (required)
+    dockerfile: Dockerfile             # Dockerfile path (required)
+    image_name: myapp_backend          # Docker image name (required)
+    env_file: backend/.env             # .env file path (optional)
     docker_compose_file: docker-compose.yml
     extra_files:
       - { src: "default.conf", dest: "/app/my-project/default.conf" }
-    test_command: "npm test"           # Test komutu (opsiyonel)
+    test_command: "npm test"           # Test command (optional)
 
   - name: frontend
     path: frontend/
@@ -70,48 +70,48 @@ services:
     env_file: frontend/.env
 ```
 
-> **Gerçek Örnek:** `Example/services_example.yml` dosyasına bakın.
+> **Real example:** See `Example/services_example.yml`.
 
-### Alan Açıklamaları
+### Field Reference
 
-| Alan | Zorunlu | Açıklama |
-|------|---------|----------|
-| `app_name` | ✅ | Uygulama adı; deploy path `/app/<app_name>/` olarak belirlenir |
-| `recipients` | ❌ | Bildirim e-postaları (`emailTeams` anahtarı veya doğrudan adres) |
-| `environments` | ✅ | Ortam başına `deploy_targets` IP listesi |
-| `services[].name` | ✅ | Servis adı |
-| `services[].path` | ✅ | Servis dizini (git diff için) |
-| `services[].dockerfile` | ✅ | Dockerfile yolu |
-| `services[].image_name` | ✅ | Docker imaj adı |
-| `services[].env_file` | ❌ | .env dosyası yolu (ilk servis için Git'ten kopyalanır) |
-| `services[].docker_compose_file` | ❌ | Compose dosyası yolu |
-| `services[].docker_compose_remote_file` | ❌ | Sunucuda hangi adla saklanacağı |
-| `services[].extra_files` | ❌ | Ek dosya/dizin listesi |
-| `services[].ssh_user` | ❌ | SSH kullanıcı adı |
-| `services[].test_command` | ❌ | Test komutu |
+| Field | Required | Description |
+|-------|----------|-------------|
+| `app_name` | ✅ | Application name; deploy path becomes `/app/<app_name>/` |
+| `recipients` | ❌ | Notification emails (`emailTeams` key or direct address) |
+| `environments` | ✅ | `deploy_targets` IP list per environment |
+| `services[].name` | ✅ | Service name |
+| `services[].path` | ✅ | Service directory (for git diff) |
+| `services[].dockerfile` | ✅ | Dockerfile path |
+| `services[].image_name` | ✅ | Docker image name |
+| `services[].env_file` | ❌ | .env file path (copied from Git for the first service) |
+| `services[].docker_compose_file` | ❌ | Compose file path |
+| `services[].docker_compose_remote_file` | ❌ | Name to use on the remote server |
+| `services[].extra_files` | ❌ | Additional files/directories list |
+| `services[].ssh_user` | ❌ | SSH username |
+| `services[].test_command` | ❌ | Test command |
 
-### extra_files Detaylı Açıklama
+### extra_files Detailed Explanation
 
 ```yaml
 extra_files:
   - default.conf              # String → /app/myapp/default.conf
-  - nginx/nginx.conf          # String → /app/myapp/nginx.conf (basename ile)
-  - backend                   # String → /app/myapp/backend/ (dizin)
-  - src: webrtc/config.env    # Map formatı — özel hedef path için
+  - nginx/nginx.conf          # String → /app/myapp/nginx.conf (using basename)
+  - backend                   # String → /app/myapp/backend/ (directory)
+  - src: webrtc/config.env    # Map format — for custom destination path
     dest: /app/myapp/config.env
 ```
 
-- Kaynak dosya mı dizin mi otomatik tespit edilir
-- Sunucuda hedef path farklı türde varsa otomatik temizlenir (Docker mount hatalarını önler)
-- `.env` dosyasından **önce** kopyalanır
+- Automatically detects whether source is a file or directory
+- Automatically cleans up conflicting path types on the server (prevents Docker mount errors)
+- Copied **before** the `.env` file
 
 ---
 
-## 2. Adım: Jenkinsfile Oluşturma
+## Step 2: Create the Jenkinsfile
 
-Projenizin **root dizininde** Jenkinsfile oluşturun. Tam örnek `Example/Jenkins_example.groovy` dosyasındadır.
+Create a Jenkinsfile in your project's **root directory**. The full example is in `Example/Jenkins_example.groovy`.
 
-### Temel Jenkinsfile Yapısı
+### Basic Jenkinsfile Structure
 
 ```groovy
 @Library('devops-jenkins-library') _
@@ -120,15 +120,15 @@ pipeline {
     agent { label "linux" }
 
     parameters {
-        choice(name: 'ENVIRONMENT', choices: ['test', 'preprod', 'prod'], description: 'Deploy ortamını seçin')
-        booleanParam(name: 'FORCE_REBUILD', defaultValue: false, description: 'Tüm imajları zorla yeniden build et')
-        booleanParam(name: 'USE_EXISTING_IMAGE', defaultValue: false, description: 'Tag mevcutsa build/push atla, mevcut imajı kullan')
-        string(name: 'VERSION_TAG', defaultValue: 'test-v1.0', description: 'Deploy edilecek imaj tag')
+        choice(name: 'ENVIRONMENT', choices: ['test', 'preprod', 'prod'], description: 'Select deploy environment')
+        booleanParam(name: 'FORCE_REBUILD', defaultValue: false, description: 'Force rebuild all images')
+        booleanParam(name: 'USE_EXISTING_IMAGE', defaultValue: false, description: 'Skip build/push if tag exists, use existing image')
+        string(name: 'VERSION_TAG', defaultValue: 'test-v1.0', description: 'Image tag to deploy')
     }
 
     environment {
         VERSION = "${params.VERSION_TAG ?: 'test-v1.0'}"
-        // Credentials (otomatik .env dosyasına yazılır)
+        // Credentials (automatically written to .env file)
         // PSQL_HOST = credentials('psql_myproject_host')
         // PSQL_PASS = credentials('psql_myproject_pass')
     }
@@ -151,22 +151,22 @@ pipeline {
                     env.HARBOR_REGISTRY = (harborHost && harborPath) ? "${harborHost}/${harborPath}" : ''
 
                     if (!fileExists('services.yml')) {
-                        error "❌ services.yml dosyası bulunamadı!"
+                        error "services.yml file not found!"
                     }
                     def servicesConfig = readYaml file: 'services.yml'
-                    env.APP             = servicesConfig.app_name ?: error("❌ services.yml içinde 'app_name' tanımlı değil!")
+                    env.APP             = servicesConfig.app_name ?: error("'app_name' is not defined in services.yml!")
                     env.RECIPIENT_EMAIL = servicesConfig.recipients ?: ''
                     def envConfig = servicesConfig.environments?."${params.ENVIRONMENT}"
-                    if (!envConfig) error "❌ '${params.ENVIRONMENT}' ortamı services.yml içinde tanımlı değil!"
+                    if (!envConfig) error "'${params.ENVIRONMENT}' environment is not defined in services.yml!"
                     env.GLOBAL_TARGETS = envConfig.deploy_targets
                         ? envConfig.deploy_targets.collect { it.toString().trim() }.join(',')
                         : ''
-                    echo "ℹ️ VERSION: ${env.VERSION} | Ortam: ${params.ENVIRONMENT} | APP: ${env.APP}"
+                    echo "VERSION: ${env.VERSION} | Environment: ${params.ENVIRONMENT} | APP: ${env.APP}"
                 }
             }
         }
 
-        stage('SonarQube Analysis') { steps { sonarQubeAnalysis(env.SONAR_SERVER) } }
+        stage('SonarQube Analysis')    { steps { sonarQubeAnalysis(env.SONAR_SERVER) } }
         stage('SonarQube Quality Gate') { steps { sonarQubeQualityGate() } }
 
         stage('Tag Check on Nexus') {
@@ -174,7 +174,7 @@ pipeline {
                 script {
                     boolean force = (params.FORCE_REBUILD?.toString() == 'true')
                     boolean useExisting = (params.USE_EXISTING_IMAGE?.toString() == 'true')
-                    if (force) { echo "🔁 FORCE_REBUILD aktif, tag kontrolü atlandı."; return }
+                    if (force) { echo "FORCE_REBUILD active, skipping tag check."; return }
                     def servicesConfig = readYaml file: 'services.yml'
                     def tagExistsMap = [:]
                     servicesConfig.services.each { svc ->
@@ -182,12 +182,12 @@ pipeline {
                         def imageName = resolveImageName(svc.name, svc.image_name)
                         def exists = checkTagOnNexus(imageName, env.VERSION, env.NEXUS_URL, env.REGISTRY_PATH, env.NEXUS_CREDENTIAL_ID ?: '')
                         tagExistsMap[key] = exists ? '1' : '0'
-                        echo "🗂️ Tag kontrolü [${svc.name}]: ${exists ? 'VAR' : 'YOK'}"
+                        echo "Tag check [${svc.name}]: ${exists ? 'EXISTS' : 'MISSING'}"
                     }
                     tagExistsMap.each { key, value -> setTagExists(key, value) }
                     if (useExisting) {
                         def allTagsExist = tagExistsMap.every { it.value == '1' }
-                        if (!allTagsExist) { error "⛔ USE_EXISTING_IMAGE=true seçili fakat bazı tag'ler bulunamadı." }
+                        if (!allTagsExist) { error "USE_EXISTING_IMAGE=true but some tags were not found." }
                     }
                 }
             }
@@ -218,7 +218,7 @@ pipeline {
                                 def changed = checkDiff(svc.path, prev, curr)
                                 setDoFlag(key, (changed == 1) ? '1' : '0')
                             }
-                            echo "  - ${svc.name}: ${doFlag(key) == '1' ? 'Build yapılacak' : 'Atlanacak'}"
+                            echo "  - ${svc.name}: ${doFlag(key) == '1' ? 'Will build' : 'Will skip'}"
                         }
                     }
                 }
@@ -245,7 +245,7 @@ pipeline {
                                 envFile          : svc.env_file
                             ])
                         } else {
-                            echo "⏭️ [${svc.name}]: değişiklik yok — build & push atlanıyor."
+                            echo "[${svc.name}]: no changes — skipping build & push."
                         }
                     }
                 }
@@ -276,7 +276,7 @@ pipeline {
                                 testCommand      : svc.test_command
                             ])
                         } else {
-                            echo "⏭️ [${svc.name}]: test atlanıyor."
+                            echo "[${svc.name}]: skipping tests."
                         }
                     }
                 }
@@ -289,7 +289,7 @@ pipeline {
                     def servicesConfig = readYaml file: 'services.yml'
                     def credentialsMap = collectCredentials()
 
-                    // Önce tüm imajları pull et
+                    // Pull all images first
                     servicesConfig.services.each { svc ->
                         def imageName = resolveImageName(svc.name, svc.image_name)
                         resolveTargets(null).each { ip ->
@@ -306,7 +306,7 @@ pipeline {
                         }
                     }
 
-                    // Deploy işlemi (son servis için docker compose up)
+                    // Deploy (docker compose up on last service)
                     def deployingSvcs = servicesConfig.services.findAll { s ->
                         (doFlag(normalizeKey(s.name)) == '1') || env.PULL_EXISTING == '1'
                     }
@@ -337,7 +337,7 @@ pipeline {
                                 ])
                             }
                         } else {
-                            echo "⏭️ [${svc.name}]: değişmedi → deploy atlanıyor."
+                            echo "[${svc.name}]: no changes — skipping deploy."
                         }
                     }
                 }
@@ -367,7 +367,7 @@ pipeline {
     }
 }
 
-// Helper fonksiyonlar — Jenkinsfile'ın sonuna ekleyin
+// Helper functions — add to the end of your Jenkinsfile
 def normalizeKey(String name) { name?.trim()?.toUpperCase() }
 def resolveImageName(String name, String imageName) { imageName ?: name }
 def setTagExists(String key, String value) { env."TAG_EXISTS_${key}" = value }
@@ -375,7 +375,7 @@ def tagExists(String key) { env."TAG_EXISTS_${key}" == '1' }
 def setDoFlag(String key, String value) { env."DO_${key}" = value }
 def doFlag(String key) { env."DO_${key}" ?: '0' }
 
-// Öncelik: DEPLOY_TARGETS env var → services.yml environments → boş liste
+// Priority: DEPLOY_TARGETS env var → services.yml environments → empty list
 def resolveTargets(svc) {
     if (env.DEPLOY_TARGETS?.trim()) {
         return env.DEPLOY_TARGETS.split(',').collect { it.trim() }.findAll { it }
@@ -387,13 +387,13 @@ def resolveTargets(svc) {
 }
 ```
 
-> **Tam Örnek:** `Example/Jenkins_example.groovy` dosyasına bakın.
+> **Full example:** See `Example/Jenkins_example.groovy`.
 
 ---
 
-## 3. Adım: sonar-project.properties Oluşturma
+## Step 3: Create sonar-project.properties
 
-Projenizin **root dizininde** `sonar-project.properties` dosyası oluşturun:
+Create a `sonar-project.properties` file in your project's **root directory**:
 
 ```properties
 sonar.projectKey=my-project-key
@@ -407,9 +407,9 @@ sonar.exclusions=**/__pycache__/**,**/node_modules/**
 
 ---
 
-## 4. Adım: Docker Compose Dosyası
+## Step 4: Docker Compose File
 
-Proje root dizininde Docker Compose dosyası oluşturun. `.env` dosyasındaki `VERSION` değişkeni otomatik okunur:
+Create a Docker Compose file in the project root. The `VERSION` variable from the `.env` file is read automatically:
 
 ```yaml
 services:
@@ -426,41 +426,41 @@ services:
     image: myapp_frontend:${VERSION}
 ```
 
-> **Not:** Docker Compose varsayılan olarak aynı dizindeki `.env` dosyasını okur. `--env-file` parametresi gerekmez.
+> **Note:** Docker Compose reads the `.env` file in the same directory by default. The `--env-file` parameter is not needed.
 
 ---
 
-## 5. Adım: Jenkins'te Pipeline Job Oluşturma
+## Step 5: Create a Pipeline Job in Jenkins
 
 1. Jenkins → **New Item**
-2. İsim verin (örn: `my-project-pipeline`)
-3. **Pipeline** seçin ve **OK** tıklayın
-4. **Pipeline** sekmesinde:
+2. Give it a name (e.g., `my-project-pipeline`)
+3. Select **Pipeline** and click **OK**
+4. In the **Pipeline** tab:
    - **Definition**: Pipeline script from SCM
    - **SCM**: Git
-   - **Repository URL**: Projenizin Git URL'i
-   - **Credentials**: Gerekirse repo erişim bilgileri
+   - **Repository URL**: Your project's Git URL
+   - **Credentials**: Repo access credentials if needed
    - **Branch Specifier**: `*/main`
-   - **Script Path**: `Jenkinsfile` (veya `Jenkinsfile_test.groovy`)
-5. **Save** tıklayın
+   - **Script Path**: `Jenkinsfile` (or `Jenkinsfile_test.groovy`)
+5. Click **Save**
 
 ---
 
-## 6. Adım: İlk Build
+## Step 6: First Build
 
-1. Pipeline job sayfasında **Build with Parameters** butonuna tıklayın
-2. Parametreleri ayarlayın:
+1. Click **Build with Parameters** on the pipeline job page
+2. Set the parameters:
    - **ENVIRONMENT**: `test`
    - **VERSION_TAG**: `test-v1.0`
-   - **FORCE_REBUILD**: `true` (ilk build için)
+   - **FORCE_REBUILD**: `true` (for the first build)
    - **USE_EXISTING_IMAGE**: `false`
-3. **Build** butonuna tıklayın
+3. Click **Build**
 
 ---
 
-## Örnek Senaryolar
+## Example Scenarios
 
-### Senaryo 1: Tek Servis
+### Scenario 1: Single Service
 
 ```yaml
 app_name: my-app
@@ -479,11 +479,11 @@ services:
     test_command: "npm test"
 ```
 
-### Senaryo 2: Backend + Frontend
+### Scenario 2: Backend + Frontend
 
 ```yaml
 app_name: my-app
-recipients: 'Takim_1'
+recipients: 'Team_1'
 environments:
   test:
     deploy_targets:
@@ -505,11 +505,11 @@ services:
     image_name: myapp_frontend
 ```
 
-### Senaryo 3: Backend + Frontend + Nginx (extra_files ile)
+### Scenario 3: Backend + Frontend + Nginx (with extra_files)
 
 ```yaml
 app_name: my-app
-recipients: 'Takim_1, Takim_2'
+recipients: 'Team_1, Team_2'
 environments:
   test:
     deploy_targets:
@@ -539,43 +539,43 @@ services:
 
 ---
 
-## Projeye Özel Ayarlar
+## Project-Specific Settings
 
-### Credentials Tanımlama
+### Defining Credentials
 
-Jenkins'te tanımlı credentials'ları `environment` bloğunda kullanın:
+Use credentials defined in Jenkins in the `environment` block:
 
 ```groovy
 environment {
     VERSION = "${params.VERSION_TAG ?: 'test-v1.0'}"
 
-    // Credentials — otomatik olarak .env dosyasına yazılır
+    // Credentials — automatically written to .env file
     PSQL_HOST = credentials('psql_myproject_host')
     PSQL_PASS = credentials('psql_myproject_pass')
     JWT_SECRET_KEY = credentials('jwt_myproject_secret')
 }
 ```
 
-`deployService()` çağrısında `extraEnvVars: collectCredentials()` ile tüm credentials otomatik toplanır ve `.env` dosyasına yazılır.
+In the `deployService()` call, all credentials are automatically collected and written to the `.env` file via `extraEnvVars: collectCredentials()`.
 
-### E-posta Alıcılarını Güncelleme
+### Updating Email Recipients
 
-`emailTeams.groovy` dosyasına takım e-posta listelerini ekleyin:
+Add team email lists to the `emailTeams.groovy` file:
 
 ```groovy
 def call() {
     return [
-        'Takim_1': 'dev1@company.com, dev2@company.com',
-        'Takim_2': 'ops@company.com',
+        'Team_1': 'dev1@company.com, dev2@company.com',
+        'Team_2': 'ops@company.com',
     ]
 }
 ```
 
-`services.yml`'de `recipients: 'Takim_1, Takim_2'` ile kullanılır.
+Use in `services.yml` with `recipients: 'Team_1, Team_2'`.
 
-### globalConfig.groovy Güncelleme
+### Updating globalConfig.groovy
 
-`vars/globalConfig.groovy` dosyasını kendi ortamınıza göre doldurun:
+Fill in `vars/globalConfig.groovy` for your environment:
 
 ```groovy
 def call() {
@@ -584,7 +584,7 @@ def call() {
         NEXUS_REGISTRY_URL  : 'http://192.168.1.100:8090',
         REGISTRY_PATH       : 'my-registry',
         NEXUS_CREDENTIAL_ID : 'Nexus_Credentials',
-        HARBOR_URL          : '',   // Harbor kullanılmıyorsa boş bırakın
+        HARBOR_URL          : '',   // Leave empty if Harbor is not used
         HARBOR_REGISTRY_PATH: '',
         HARBOR_CREDENTIAL_ID: '',
         SONAR_SERVER        : 'my-sonar-server',
@@ -597,31 +597,31 @@ def call() {
 
 ---
 
-## Önemli Notlar
+## Important Notes
 
-1. **Helper Fonksiyonlar:** Jenkinsfile'ın sonuna helper fonksiyonları eklemeyi unutmayın
-2. **services.yml:** `app_name` ve `environments` alanları zorunludur
-3. **SonarQube:** Her projede `sonar-project.properties` dosyası olmalıdır
-4. **SSH Erişimi:** Deploy sunucusuna SSH erişimi kurulu olmalıdır (`01-cicd-hazirliklari.md`)
-5. **pullService:** Compose çalıştırılmadan önce ayrıca çağrılır; `deployService` içinde `shouldPull: false` olarak kullanılır
-
----
-
-## Sorun Giderme
-
-**services.yml bulunamadı:** Dosyanın proje root dizininde olduğundan ve Git'e commit edildiğinden emin olun.
-
-**Shared library bulunamadı:** Jenkins → Manage Jenkins → Configure System → Global Pipeline Libraries → `devops-jenkins-library` tanımlı mı kontrol edin.
-
-**extra_files kopyalanmıyor:** Log'larda `📁 extra file/dizin kopyalanacak...` mesajını ve kaynak dosyanın projede mevcut olduğunu kontrol edin.
-
-Detaylı sorun giderme için: **[SSS.md](./SSS.md)**
+1. **Helper Functions:** Don't forget to add the helper functions at the end of your Jenkinsfile
+2. **services.yml:** The `app_name` and `environments` fields are required
+3. **SonarQube:** Each project must have a `sonar-project.properties` file
+4. **SSH Access:** SSH access to the deploy server must be configured (`01-cicd-preparation.md`)
+5. **pullService:** Called separately before running Compose; `deployService` uses `shouldPull: false`
 
 ---
 
-## Daha Fazla Bilgi
+## Troubleshooting
 
-- **Fonksiyon Referansları:** [../README.md](../README.md)
-- **Sık Sorulan Sorular:** [SSS.md](./SSS.md)
-- **Gerçek Örnekler:** [../Example/](../Example/)
-- **CI/CD Öncesi Hazırlık:** [01-cicd-hazirliklari.md](./01-cicd-hazirliklari.md)
+**services.yml not found:** Make sure the file is in the project root directory and has been committed to Git.
+
+**Shared library not found:** Jenkins → Manage Jenkins → Configure System → Global Pipeline Libraries → Check that `devops-jenkins-library` is defined.
+
+**extra_files not being copied:** Check logs for the `extra file/directory will be copied...` message and verify the source file exists in the project.
+
+For detailed troubleshooting: **[FAQ.md](./FAQ.md)**
+
+---
+
+## More Information
+
+- **Function References:** [../README.md](../README.md)
+- **Frequently Asked Questions:** [FAQ.md](./FAQ.md)
+- **Real Examples:** [../Example/](../Example/)
+- **CI/CD Pre-Setup:** [01-cicd-preparation.md](./01-cicd-preparation.md)

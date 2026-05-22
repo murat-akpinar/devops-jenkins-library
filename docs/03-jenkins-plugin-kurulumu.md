@@ -1,5 +1,7 @@
 # Jenkins Plugin Kurulum Rehberi
 
+> For English documentation: **[03-jenkins-plugin-installation.md](./03-jenkins-plugin-installation.md)**
+
 Bu rehber, shared library'nin çalışması için Jenkins'e yüklenmesi gereken eklentileri listeler.
 
 ---

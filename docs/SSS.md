@@ -1,5 +1,7 @@
 # ❓ Sık Sorulan Sorular (SSS)
 
+> For English documentation: **[FAQ.md](./FAQ.md)**
+
 Jenkins Shared Library kullanımında sık karşılaşılan sorular ve cevapları.
 
 ## 📋 İçindekiler

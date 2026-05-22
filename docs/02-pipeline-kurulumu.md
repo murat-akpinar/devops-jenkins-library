@@ -1,5 +1,7 @@
 # CI/CD Pipeline Kurulumu (Adım 2)
 
+> For English documentation: **[02-pipeline-setup.md](./02-pipeline-setup.md)**
+
 Bu döküman, hazırlıklar tamamlandıktan sonra Jenkins pipeline'ının oluşturulması için gerekli dosyaların (Jenkinsfile ve services.yml) hazırlanmasını anlatır.
 
 ---

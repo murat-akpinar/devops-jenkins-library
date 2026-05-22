@@ -1,5 +1,7 @@
 # CI/CD Pipeline Kurulum Öncesi Hazırlık Rehberi
 
+> For English documentation: **[01-cicd-preparation.md](./01-cicd-preparation.md)**
+
 Bu rehber, Jenkins CI/CD pipeline'ını kurmadan **önce** yapılması gereken tüm hazırlık adımlarını içerir. İlk defa CI/CD kurulumu yapacak kullanıcılar için hazırlanmıştır.
 
 ---
