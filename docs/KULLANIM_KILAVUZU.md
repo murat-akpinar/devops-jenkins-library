@@ -252,8 +252,8 @@ pipeline {
             }
         }
 
-        stage('Trivy Scan')         { steps { trivyScan(env.VERSION) } }
-        stage('Trivy Quality Gate') { steps { trivyQualityGate(env.APP, 'C') } }
+        stage('DockerScan Scan')         { steps { trivyScan(env.VERSION) } }
+        stage('DockerScan Quality Gate') { steps { trivyQualityGate(env.APP, 'C') } }
 
         stage('Docker Cleanup') { steps { sh 'docker system prune -af || true' } }
 
@@ -575,7 +575,7 @@ def call() {
 
 ### globalConfig.groovy Güncelleme
 
-`vars/globalConfig.groovy` dosyasını kendi ortamınıza göre doldurun:
+`vars/globalConfig.groovy` dosyasını kendi ortamınıza göre doldurun. Trivy ayarlarının çalışması için Trivy host'unda **[DockerScan](https://github.com/murat-akpinar/DockerScan)** kurulu olması gerekir.
 
 ```groovy
 def call() {
@@ -588,9 +588,10 @@ def call() {
         HARBOR_REGISTRY_PATH: '',
         HARBOR_CREDENTIAL_ID: '',
         SONAR_SERVER        : 'my-sonar-server',
-        TRIVY_HOST          : '192.168.1.200',
-        TRIVY_SSH_USER      : 'jenkins',
-        TRIVY_SCRIPT_PATH   : '/app/trivy-dashboard/trigger-nexus.sh',
+        DOCKERSCAN_HOST              : '192.168.1.200',
+        DOCKERSCAN_SSH_USER          : 'jenkins',
+        DOCKERSCAN_SCRIPT_PATH       : '/app/DockerScan/trigger-nexus.sh',  // DockerScan: https://github.com/murat-akpinar/DockerScan
+        DOCKERSCAN_BACKEND_PORT : '3018',
     ]
 }
 ```

@@ -66,8 +66,8 @@ devops-jenkins-library/
 │   ├── pullService.groovy             # Docker image pull to server
 │   ├── runTestsInContainer.groovy     # Run tests in container
 │   ├── deployService.groovy           # Deploy operation
-│   ├── trivyScan.groovy               # Trivy security scan
-│   ├── trivyQualityGate.groovy        # Trivy Quality Gate check
+│   ├── trivyScan.groovy               # DockerScan security scan
+│   ├── trivyQualityGate.groovy        # DockerScan Quality Gate check
 │   ├── sendEmailNotification.groovy   # Email notification
 │   └── emailTeams.groovy              # Team email list
 ├── Example/                           # Example files
@@ -203,10 +203,11 @@ Returns the shared configuration (Nexus, Harbor, SonarQube, Trivy). Edit `global
     // SonarQube
     SONAR_SERVER        : "your-sonar-server",
 
-    // Trivy
-    TRIVY_HOST          : "YOUR_TRIVY_HOST_IP",
-    TRIVY_SSH_USER      : "your-user",
-    TRIVY_SCRIPT_PATH   : "/app/trivy-dashboard/trigger-nexus.sh",
+    // Trivy — DockerScan: https://github.com/murat-akpinar/DockerScan
+    DOCKERSCAN_HOST              : "YOUR_DOCKERSCAN_HOST_IP",
+    DOCKERSCAN_SSH_USER          : "your-user",
+    DOCKERSCAN_SCRIPT_PATH       : "/app/DockerScan/trigger-nexus.sh",
+    DOCKERSCAN_BACKEND_PORT : "3018",
 ]
 ```
 
@@ -447,12 +448,14 @@ extra_files:
 
 ### `trivyScan(tag)`
 
-Triggers a Trivy security scan on built images. Only services whose `DO_` flag is `'1'` (built) are scanned.
+Triggers a DockerScan security scan on built images. Only services whose `DO_` flag is `'1'` (built) are scanned.
 
 **Parameters:**
 - `tag` (String): Image tag to scan
 
 > A `services.yml` file must exist in the project root.
+
+> This function SSH-connects to the Trivy host and runs the scan via the **[DockerScan](https://github.com/murat-akpinar/DockerScan)** trigger script. DockerScan must be installed and running on the host defined in `DOCKERSCAN_HOST`.
 
 ```groovy
 trivyScan(env.VERSION)
@@ -462,10 +465,10 @@ trivyScan(env.VERSION)
 
 ### `trivyQualityGate(projectName, grade)`
 
-Queries the Trivy Dashboard API to check the security grade of the project.
+Queries the DockerScan Dashboard API to check the security grade of the project.
 
 **Parameters:**
-- `projectName` (String): Project name in Trivy Dashboard (usually `env.APP`)
+- `projectName` (String): Project name in DockerScan Dashboard (usually `env.APP`)
 - `grade` (String, optional): Minimum passing grade (default: `'C'`)
 
 **Grade scale:** `A` (best) → `B` → `C` → `D` → `F` (worst)

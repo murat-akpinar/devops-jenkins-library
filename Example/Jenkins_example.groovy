@@ -145,8 +145,8 @@ pipeline {
             }
         }
 
-        stage('Trivy Scan')         { steps { trivyScan(env.VERSION) } }
-        stage('Trivy Quality Gate') { steps { trivyQualityGate(env.APP, 'C') } }
+        stage('DockerScan Scan')         { steps { trivyScan(env.VERSION) } }
+        stage('DockerScan Quality Gate') { steps { trivyQualityGate(env.APP, 'C') } }
 
         stage('Docker Cleanup') { steps { sh 'docker system prune -af || true' } }
 

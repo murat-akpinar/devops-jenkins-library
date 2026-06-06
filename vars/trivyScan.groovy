@@ -1,8 +1,8 @@
 def call(String tag) {
     def CFG        = globalConfig()
-    def trivyHost  = CFG.TRIVY_HOST ?: 'YOUR_TRIVY_HOST_IP'
-    def sshUser    = CFG.TRIVY_SSH_USER ?: 'your-user'
-    def scriptPath = CFG.TRIVY_SCRIPT_PATH ?: '/app/trivy-dashboard/trigger-nexus.sh'
+    def dockerScanHost  = CFG.DOCKERSCAN_HOST
+    def sshUser    = CFG.DOCKERSCAN_SSH_USER
+    def scriptPath = CFG.DOCKERSCAN_SCRIPT_PATH
     def nexusCredentialId = env.NEXUS_CREDENTIAL_ID ?: ''
 
     echo "🔍 Trivy taraması başlatılıyor (tag: ${tag})..."
@@ -14,7 +14,7 @@ def call(String tag) {
             def imageName = svc.image_name ?: svc.name
             if (env."DO_${key}" == '1') {
                 echo "  → [${imageName}:${tag}] taranıyor..."
-                sh """ssh -o StrictHostKeyChecking=no ${sshUser}@${trivyHost} \
+                sh """ssh -o StrictHostKeyChecking=no ${sshUser}@${dockerScanHost} \
                     'NEXUS_USER="${nexusUser}" NEXUS_PASS="${nexusPass}" ${scriptPath} --image ${imageName} --tag ${tag}'"""
                 echo "  ✅ [${imageName}:${tag}] tarama tamamlandı"
             } else {

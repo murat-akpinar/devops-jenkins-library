@@ -66,8 +66,8 @@ devops-jenkins-library/
 │   ├── pullService.groovy             # Sunucuya Docker image pull
 │   ├── runTestsInContainer.groovy     # Container'da test çalıştırma
 │   ├── deployService.groovy           # Deploy işlemi
-│   ├── trivyScan.groovy               # Trivy güvenlik taraması
-│   ├── trivyQualityGate.groovy        # Trivy Quality Gate kontrolü
+│   ├── trivyScan.groovy               # DockerScan güvenlik taraması
+│   ├── trivyQualityGate.groovy        # DockerScan Quality Gate kontrolü
 │   ├── sendEmailNotification.groovy   # E-posta bildirimi
 │   └── emailTeams.groovy              # Takım e-posta listesi
 ├── Example/                           # Örnek dosyalar
@@ -203,10 +203,11 @@ Ortak yapılandırmayı (Nexus, Harbor, SonarQube, Trivy) döndürür. `globalCo
     // SonarQube
     SONAR_SERVER        : "your-sonar-server",
 
-    // Trivy
-    TRIVY_HOST          : "YOUR_TRIVY_HOST_IP",
-    TRIVY_SSH_USER      : "your-user",
-    TRIVY_SCRIPT_PATH   : "/app/trivy-dashboard/trigger-nexus.sh",
+    // Trivy — DockerScan: https://github.com/murat-akpinar/DockerScan
+    DOCKERSCAN_HOST              : "YOUR_DOCKERSCAN_HOST_IP",
+    DOCKERSCAN_SSH_USER          : "your-user",
+    DOCKERSCAN_SCRIPT_PATH       : "/app/DockerScan/trigger-nexus.sh",
+    DOCKERSCAN_BACKEND_PORT : "3018",
 ]
 ```
 
@@ -447,12 +448,14 @@ extra_files:
 
 ### `trivyScan(tag)`
 
-Build edilen imajlarda Trivy güvenlik taraması başlatır. Yalnızca `DO_` flag'i `'1'` olan (build edilmiş) servisler taranır.
+Build edilen imajlarda DockerScan güvenlik taraması başlatır. Yalnızca `DO_` flag'i `'1'` olan (build edilmiş) servisler taranır.
 
 **Parametreler:**
 - `tag` (String): Taranacak imaj tag'i
 
 > `services.yml` dosyası proje root'unda olmalı.
+
+> Bu fonksiyon, Trivy host'una SSH bağlantısı kurarak taramayı **[DockerScan](https://github.com/murat-akpinar/DockerScan)** trigger scripti aracılığıyla çalıştırır. `DOCKERSCAN_HOST` ile tanımlanan sunucuda DockerScan kurulu ve çalışıyor olmalıdır.
 
 ```groovy
 trivyScan(env.VERSION)
@@ -462,10 +465,10 @@ trivyScan(env.VERSION)
 
 ### `trivyQualityGate(projectName, grade)`
 
-Trivy Dashboard API'yi sorgulayarak projenin güvenlik notunu kontrol eder.
+DockerScan Dashboard API'yi sorgulayarak projenin güvenlik notunu kontrol eder.
 
 **Parametreler:**
-- `projectName` (String): Trivy Dashboard'daki proje adı (genellikle `env.APP`)
+- `projectName` (String): DockerScan Dashboard'daki proje adı (genellikle `env.APP`)
 - `grade` (String, opsiyonel): Minimum geçer not (varsayılan: `'C'`)
 
 **Not Skalası:** `A` (en iyi) → `B` → `C` → `D` → `F` (en kötü)

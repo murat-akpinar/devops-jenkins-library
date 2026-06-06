@@ -16,10 +16,11 @@ def call() {
         // ── SonarQube ────────────────────────────────────────────────────────
         SONAR_SERVER        : 'your-sonar-server',          // Jenkins SonarQube server adı
 
-        // ── Trivy ────────────────────────────────────────────────────────────
-        TRIVY_HOST          : 'YOUR_TRIVY_HOST_IP',         // Trivy dashboard sunucu IP
-        TRIVY_SSH_USER      : 'your-user',                  // SSH kullanıcısı
-        TRIVY_SCRIPT_PATH   : '/app/trivy-dashboard/trigger-nexus.sh',
+        // ── DockerScan ───────────────────────────────────────────────────────
+        DOCKERSCAN_HOST         : 'YOUR_DOCKERSCAN_HOST_IP',    // DockerScan sunucu IP
+        DOCKERSCAN_SSH_USER     : 'your-user',                  // SSH kullanıcısı
+        DOCKERSCAN_SCRIPT_PATH  : '/app/DockerScan/trigger-nexus.sh',
+        DOCKERSCAN_BACKEND_PORT : '3018',                       // DockerScan backend API portu (BACKEND_PORT)
 
     ]
 }
