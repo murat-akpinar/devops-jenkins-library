@@ -14,6 +14,7 @@ CI/CD pipeline'ının çalışabilmesi için aşağıdaki hazırlıkların yapı
 2. ✅ **Docker Registry Ayarları** - Docker'ın insecure registry'leri kullanabilmesi
 3. ✅ **Nexus Bağlantısı** - Container registry'ye erişim
 4. ✅ **SSH Anahtarı Kurulumu** - Sunucular arası güvenli bağlantı
+5. ✅ **DockerScan Kurulumu** - Güvenlik tarama aracının hazırlanması
 
 ---
 
@@ -185,7 +186,90 @@ exit
 
 ---
 
-## 🔑 5. Jenkins Credentials Tanımlama
+## 🐳 5. DockerScan Kurulumu
+
+[DockerScan](https://github.com/murat-akpinar/DockerScan), Trivy tabanlı bir güvenlik tarama ve dashboard aracıdır. Jenkins pipeline'ı SSH üzerinden DockerScan sunucusundaki `trigger-nexus.sh` scriptini çalıştırır; script Trivy ile imajı tarar ve sonuçları JSON olarak kaydeder. Quality gate kontrolü ise Jenkins agent'tan `DOCKERSCAN_BACKEND_PORT` (varsayılan: `3018`) üzerindeki API'ye sorgu atarak yapılır.
+
+> **Repo:** [https://github.com/murat-akpinar/DockerScan](https://github.com/murat-akpinar/DockerScan)
+
+| Port | Servis | Açıklama |
+|------|--------|----------|
+| `3017` | Frontend (nginx) | Web dashboard arayüzü |
+| `3018` | Backend API (Go) | Quality gate sorguları |
+
+### Adım 1: DockerScan sunucusunu hazırlayın
+
+```bash
+# DockerScan sunucusuna bağlanın
+ssh [kullanıcı]@[DOCKERSCAN-IP]
+
+# Repoyu /app/DockerScan altına klonlayın (globalConfig varsayılan path)
+git clone https://github.com/murat-akpinar/DockerScan.git /app/DockerScan
+
+cd /app/DockerScan
+
+# .env dosyasını oluşturun
+cp .example.env .env
+# Gerekirse .env içindeki FRONTEND_PORT, BACKEND_PORT, TZ değerlerini düzenleyin
+
+# Docker Compose ile başlatın
+docker compose up -d
+```
+
+### Adım 2: Servisin çalıştığını doğrulayın
+
+```bash
+# Backend API health check
+curl http://localhost:3018/health
+
+# Container'ların ayakta olduğunu kontrol edin
+docker compose ps
+```
+
+### Adım 3: Jenkins Agent'tan SSH anahtarını kopyalayın
+
+Jenkins pipeline'ı, trigger script'i çalıştırmak için DockerScan sunucusuna SSH ile bağlanır:
+
+```bash
+# Jenkins agent sunucusunda jenkins kullanıcısı ile
+su - jenkins
+
+# SSH anahtarını DockerScan sunucusuna kopyalayın
+ssh-copy-id [DOCKERSCAN_SSH_USER]@[DOCKERSCAN-IP]
+
+# İlk bağlantıyı yapın (known hosts için zorunlu)
+ssh [DOCKERSCAN_SSH_USER]@[DOCKERSCAN-IP]
+exit
+
+# Şifresiz bağlantıyı test edin
+ssh [DOCKERSCAN_SSH_USER]@[DOCKERSCAN-IP] "whoami"
+```
+
+> **⚠️ Önemli:** İlk bağlantıyı atlarsanız Jenkins pipeline'ı çalıştığında "Host key verification failed" hatası alırsınız.
+
+### Adım 4: Network izinlerini talep edin
+
+DockerScan için aşağıdaki port erişimleri gereklidir:
+
+```
+JENKINS_AGENT_IP > DOCKERSCAN_IP   PORT 22    (SSH — trigger script çalıştırma)
+JENKINS_AGENT_IP > DOCKERSCAN_IP   PORT 3018  (Backend API — quality gate sorgusu)
+```
+
+### Adım 5: globalConfig.groovy'yi güncelleyin
+
+```groovy
+// ── DockerScan ─────────────────────────────────────────────────────────
+// Repo: https://github.com/murat-akpinar/DockerScan
+DOCKERSCAN_HOST         : 'DOCKERSCAN_IP',                    // DockerScan sunucu IP
+DOCKERSCAN_SSH_USER     : 'your-user',                        // SSH kullanıcısı
+DOCKERSCAN_SCRIPT_PATH  : '/app/DockerScan/trigger-nexus.sh', // Trigger script yolu
+DOCKERSCAN_BACKEND_PORT : '3018',                             // Backend API portu
+```
+
+---
+
+## 🔑 6. Jenkins Credentials Tanımlama
 
 Pipeline'ın Nexus ve Harbor'a erişebilmesi için Jenkins'te aşağıdaki credential'lar oluşturulmalıdır.
 
@@ -219,6 +303,10 @@ Aşağıdaki kontrol listesini kullanarak tüm adımların tamamlandığından e
 - [ ] Şifresiz SSH bağlantısı test edildi
 - [ ] Jenkins'te `Nexus_Credentials` credential'ı oluşturuldu
 - [ ] Jenkins'te `Harbor_Credentials` credential'ı oluşturuldu
+- [ ] DockerScan sunucusuna kurulum yapıldı ve servis ayakta
+- [ ] Jenkins agent'tan DockerScan sunucusuna SSH anahtarı kopyalandı
+- [ ] DockerScan için ilk SSH bağlantısı yapıldı (known hosts)
+- [ ] `globalConfig.groovy` içinde DockerScan ayarları güncellendi
 
 ---
 

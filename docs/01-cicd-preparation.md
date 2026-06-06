@@ -14,6 +14,7 @@ The following preparations are required for the CI/CD pipeline to function:
 2. ✅ **Docker Registry Settings** — Allow Docker to use insecure registries
 3. ✅ **Nexus Connection** — Access to the container registry
 4. ✅ **SSH Key Setup** — Secure connection between servers
+5. ✅ **DockerScan Setup** — Prepare the security scanning tool
 
 ---
 
@@ -168,7 +169,90 @@ exit
 
 ---
 
-## 5. Jenkins Credentials Setup
+## 5. DockerScan Setup
+
+[DockerScan](https://github.com/murat-akpinar/DockerScan) is a Trivy-based security scanning and dashboard tool. The Jenkins pipeline connects via SSH to run `trigger-nexus.sh` on the DockerScan server; the script scans the image with Trivy and saves results as JSON. The quality gate check is performed by the Jenkins agent querying the backend API on `DOCKERSCAN_BACKEND_PORT` (default: `3018`).
+
+> **Repo:** [https://github.com/murat-akpinar/DockerScan](https://github.com/murat-akpinar/DockerScan)
+
+| Port | Service | Description |
+|------|---------|-------------|
+| `3017` | Frontend (nginx) | Web dashboard UI |
+| `3018` | Backend API (Go) | Quality gate queries |
+
+### Step 1: Prepare the DockerScan server
+
+```bash
+# Connect to the DockerScan server
+ssh [user]@[DOCKERSCAN-IP]
+
+# Clone the repository to /app/DockerScan (default path in globalConfig)
+git clone https://github.com/murat-akpinar/DockerScan.git /app/DockerScan
+
+cd /app/DockerScan
+
+# Create the .env file
+cp .example.env .env
+# Edit FRONTEND_PORT, BACKEND_PORT, TZ in .env if needed
+
+# Start with Docker Compose
+docker compose up -d
+```
+
+### Step 2: Verify the service is running
+
+```bash
+# Backend API health check
+curl http://localhost:3018/health
+
+# Check that containers are running
+docker compose ps
+```
+
+### Step 3: Copy the SSH key from Jenkins Agent
+
+The Jenkins pipeline connects to the DockerScan server via SSH to run the trigger script:
+
+```bash
+# On the Jenkins agent server, as the jenkins user
+su - jenkins
+
+# Copy the SSH key to the DockerScan server
+ssh-copy-id [DOCKERSCAN_SSH_USER]@[DOCKERSCAN-IP]
+
+# Perform the first connection (required for known hosts)
+ssh [DOCKERSCAN_SSH_USER]@[DOCKERSCAN-IP]
+exit
+
+# Test passwordless connection
+ssh [DOCKERSCAN_SSH_USER]@[DOCKERSCAN-IP] "whoami"
+```
+
+> **Warning:** If you skip the first connection step, the Jenkins pipeline will fail with "Host key verification failed".
+
+### Step 4: Request network permissions
+
+The following port access is required for DockerScan:
+
+```
+JENKINS_AGENT_IP > DOCKERSCAN_IP   PORT 22    (SSH — trigger script execution)
+JENKINS_AGENT_IP > DOCKERSCAN_IP   PORT 3018  (Backend API — quality gate query)
+```
+
+### Step 5: Update globalConfig.groovy
+
+```groovy
+// ── DockerScan ─────────────────────────────────────────────────────────
+// Repo: https://github.com/murat-akpinar/DockerScan
+DOCKERSCAN_HOST         : 'DOCKERSCAN_IP',                    // DockerScan server IP
+DOCKERSCAN_SSH_USER     : 'your-user',                        // SSH user
+DOCKERSCAN_SCRIPT_PATH  : '/app/DockerScan/trigger-nexus.sh', // Trigger script path
+DOCKERSCAN_BACKEND_PORT : '3018',                             // Backend API port
+```
+
+---
+
+## 6. Jenkins Credentials Setup
 
 The following credentials must be created in Jenkins for the pipeline to access Nexus and Harbor.
 
@@ -202,6 +286,10 @@ Use the checklist below to ensure all steps are completed:
 - [ ] Passwordless SSH connection tested
 - [ ] `Nexus_Credentials` credential created in Jenkins
 - [ ] `Harbor_Credentials` credential created in Jenkins
+- [ ] DockerScan installed on the server and service is running
+- [ ] SSH key copied from Jenkins agent to DockerScan server
+- [ ] First SSH connection to DockerScan server made (known hosts)
+- [ ] DockerScan settings updated in `globalConfig.groovy`
 
 ---
 
