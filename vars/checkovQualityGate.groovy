@@ -2,18 +2,18 @@
 // checkovQualityGate(env.APP, 'C')  →  A,B,C geçer; D,F durdurur
 // checkovQualityGate(env.APP, 'D')  →  A,B,C,D geçer; sadece F durdurur
 //
-// Harf notu pass rate'ten hesaplanır:
-//   A: %100  |  B: ≥%90  |  C: ≥%75  |  D: ≥%50  |  F: <%50
+// Harf notu başarısız check sayısına göre hesaplanır (servis bazında, en kötüsü alınır):
+//   A: 0  |  B: ≤2  |  C: ≤5  |  D: ≤10  |  F: >10
 
 def call(String projectName, String grade = 'C') {
-    def CFG           = globalConfig()
+    def CFG            = globalConfig()
     def dockerScanHost = CFG.DOCKERSCAN_HOST
-    def sshUser       = CFG.DOCKERSCAN_SSH_USER
-    def dashboardPort = CFG.DOCKERSCAN_BACKEND_PORT
-    def dashboardUrl  = "http://${dockerScanHost}:${dashboardPort}"
-    def gradeOrder    = [A: 1, B: 2, C: 3, D: 4, F: 5]
-    def retryCount    = 12
-    def retryDelay    = 10
+    def sshUser        = CFG.DOCKERSCAN_SSH_USER
+    def dashboardPort  = CFG.DOCKERSCAN_BACKEND_PORT
+    def dashboardUrl   = "http://${dockerScanHost}:${dashboardPort}"
+    def gradeOrder     = [A: 1, B: 2, C: 3, D: 4, F: 5]
+    def retryCount     = 12
+    def retryDelay     = 10
 
     grade = grade.toUpperCase()
     if (!gradeOrder.containsKey(grade)) {
@@ -38,75 +38,74 @@ def call(String projectName, String grade = 'C') {
             script: "ssh -o StrictHostKeyChecking=no ${sshUser}@${dockerScanHost} \"curl -sf 'http://localhost:${dashboardPort}/api/checkov?project=${projectName}'\" || true",
             returnStdout: true
         ).trim()
-        if (responseText) {
+        if (responseText && responseText != '[]') {
             echo "  ┌─ [${attempt}/${retryCount}] API yanıtı alındı"
             echo "  └─ ✅ Dashboard yanıt verdi"
             break
         }
-        echo "  ⏳ (${attempt}/${retryCount}) API henüz hazır değil, bekleniyor..."
+        echo "  ⏳ (${attempt}/${retryCount}) Tarama sonuçları bekleniyor..."
     }
 
-    if (!responseText) {
+    if (!responseText || responseText == '[]') {
         def elapsed = ((System.currentTimeMillis() - t0) / 1000).toInteger()
         echo """
 ╔${bar}╗
 ║  ❌  Checkov Quality Gate Başarısız  (${elapsed}s)
 ╚${bar}╝
-  🔴 Hata : Dashboard ${retryCount * retryDelay}s içinde yanıt vermedi"""
-        error "❌ Checkov Dashboard API ${retryCount * retryDelay}s içinde yanıt vermedi: ${dashboardUrl}/api/checkov?project=${projectName}"
+  🔴 Hata : '${projectName}' için tarama kaydı bulunamadı"""
+        error "❌ '${projectName}' projesi için Checkov tarama kaydı bulunamadı. Tarama başarıyla tamamlandı mı?"
     }
 
-    def response = readJSON text: responseText
-    echo "  🔍 [DEBUG] Ham yanıt: ${responseText}"
-    echo "  🔍 [DEBUG] projects[0]: ${response.projects?.getAt(0)}"
-    def project  = response.projects?.find { it?.projectName == projectName }
-    if (!project) {
-        def elapsed = ((System.currentTimeMillis() - t0) / 1000).toInteger()
-        echo """
-╔${bar}╗
-║  ❌  Checkov Quality Gate Başarısız  (${elapsed}s)
-╚${bar}╝
-  🔴 Hata    : '${projectName}' projesi bulunamadı
-  📋 Mevcut  : ${response.projects?.collect { it?.projectName }}"""
-        error "❌ '${projectName}' projesi Checkov Dashboard'da bulunamadı. Mevcut: ${response.projects?.collect { it?.projectName }}"
+    // /api/checkov flat array döner: [{projectName, serviceName, tag, passed, failed, ...}, ...]
+    def scans = readJSON text: responseText
+
+    def totalPassed = 0
+    def totalFailed = 0
+    def worstGrade  = 'A'
+
+    echo "  ┌─ Servis Raporları"
+    scans.each { scan ->
+        def svcFailed = scan.failed ?: 0
+        def svcPassed = scan.passed ?: 0
+        def svcGrade  = computeCheckovGrade(svcFailed)
+        totalFailed += svcFailed
+        totalPassed += svcPassed
+        if (gradeOrder[svcGrade] > gradeOrder[worstGrade]) {
+            worstGrade = svcGrade
+        }
+        echo "  │  ${scan.serviceName.padRight(20)} [${scan.tag}]  geçen: ${svcPassed}  başarısız: ${svcFailed}  → ${svcGrade}"
     }
 
-    def totalPassed = project.passed ?: 0
-    def totalFailed = project.failed ?: 0
-    def total       = totalPassed + totalFailed
-    def passRate    = total > 0 ? ((totalPassed / total) * 100).toInteger() : 100
-
-    def projectGrade
-    if      (passRate == 100) projectGrade = 'A'
-    else if (passRate >= 90)  projectGrade = 'B'
-    else if (passRate >= 75)  projectGrade = 'C'
-    else if (passRate >= 50)  projectGrade = 'D'
-    else                      projectGrade = 'F'
-
-    echo """
-  ┌─ Proje Raporu
-  │  📊 Not      : ${projectGrade}  (geçme oranı: %${passRate})
-  │  ✅ Geçen    : ${totalPassed}
-  │  ❌ Başarısız: ${totalFailed}
-  │  📋 Toplam   : ${total}"""
-    project.images?.each { img ->
-        echo "  │  ${img.imageName.padRight(30)} geçen: ${img.passed ?: 0}  başarısız: ${img.failed ?: 0}"
-    }
-    echo "  └─ 🎯 Eşik Notu: ${grade}"
+    def total = totalPassed + totalFailed
+    echo """  └─ Özet
+     📊 Proje Notu : ${worstGrade}
+     ✅ Geçen      : ${totalPassed}
+     ❌ Başarısız  : ${totalFailed}
+     📋 Toplam     : ${total}
+     🎯 Eşik Notu  : ${grade}"""
 
     def elapsed = ((System.currentTimeMillis() - t0) / 1000).toInteger()
-    if (gradeOrder[projectGrade] <= gradeOrder[grade]) {
+    if (gradeOrder[worstGrade] <= gradeOrder[grade]) {
         echo """
 ╔${bar}╗
 ║  ✅  Checkov Quality Gate Geçti  (${elapsed}s)
 ╚${bar}╝
-  📊 Proje Notu : ${projectGrade}  ≤  Eşik : ${grade}"""
+  📊 Proje Notu : ${worstGrade}  ≤  Eşik : ${grade}"""
     } else {
         echo """
 ╔${bar}╗
 ║  ❌  Checkov Quality Gate Başarısız  (${elapsed}s)
 ╚${bar}╝
-  🔴 Proje Notu : ${projectGrade}  >  Eşik : ${grade}"""
-        error "⛔ [${projectName}] Checkov Quality Gate başarısız — Proje notu: ${projectGrade}, Eşik: ${grade}"
+  🔴 Proje Notu : ${worstGrade}  >  Eşik : ${grade}"""
+        error "⛔ [${projectName}] Checkov Quality Gate başarısız — Proje notu: ${worstGrade}, Eşik: ${grade}"
     }
+}
+
+// failed sayısına göre harf notu (frontend/backend ile aynı eşikler)
+def computeCheckovGrade(int failed) {
+    if (failed == 0)   return 'A'
+    if (failed <= 2)   return 'B'
+    if (failed <= 5)   return 'C'
+    if (failed <= 10)  return 'D'
+    return 'F'
 }

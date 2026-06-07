@@ -35,63 +35,65 @@ def call(String projectName, String grade = 'C') {
             script: "ssh -o StrictHostKeyChecking=no ${sshUser}@${dockerScanHost} \"curl -sf 'http://localhost:${dashboardPort}/api/osv?project=${projectName}'\" || true",
             returnStdout: true
         ).trim()
-        if (responseText) {
+        if (responseText && responseText != '[]') {
             echo "  ┌─ [${attempt}/${retryCount}] API yanıtı alındı"
             echo "  └─ ✅ Dashboard yanıt verdi"
             break
         }
-        echo "  ⏳ (${attempt}/${retryCount}) API henüz hazır değil, bekleniyor..."
+        echo "  ⏳ (${attempt}/${retryCount}) Tarama sonuçları bekleniyor..."
     }
 
-    if (!responseText) {
+    if (!responseText || responseText == '[]') {
         def elapsed = ((System.currentTimeMillis() - t0) / 1000).toInteger()
         echo """
 ╔${bar}╗
 ║  ❌  OSV Quality Gate Başarısız  (${elapsed}s)
 ╚${bar}╝
-  🔴 Hata : Dashboard ${retryCount * retryDelay}s içinde yanıt vermedi"""
-        error "❌ OSV Dashboard API ${retryCount * retryDelay}s içinde yanıt vermedi: ${dashboardUrl}/api/osv?project=${projectName}"
+  🔴 Hata : '${projectName}' için tarama kaydı bulunamadı"""
+        error "❌ '${projectName}' projesi için OSV tarama kaydı bulunamadı. Tarama başarıyla tamamlandı mı?"
     }
 
-    def response = readJSON text: responseText
-    def project  = response.projects?.find { it?.projectName == projectName }
-    if (!project) {
-        def elapsed = ((System.currentTimeMillis() - t0) / 1000).toInteger()
-        echo """
-╔${bar}╗
-║  ❌  OSV Quality Gate Başarısız  (${elapsed}s)
-╚${bar}╝
-  🔴 Hata    : '${projectName}' projesi bulunamadı
-  📋 Mevcut  : ${response.projects?.collect { it.projectName }}"""
-        error "❌ '${projectName}' projesi OSV Dashboard'da bulunamadı. Mevcut: ${response.projects?.collect { it.projectName }}"
+    // /api/osv flat array döner: [{projectName, serviceName, tag, totalVulns, sources[]}, ...]
+    def scans = readJSON text: responseText
+
+    def worstGrade = 'A'
+
+    echo "  ┌─ Servis Raporları"
+    scans.each { scan ->
+        def svcVulns = scan.totalVulns ?: 0
+        def svcGrade = computeOsvGrade(svcVulns)
+        if (gradeOrder[svcGrade] > gradeOrder[worstGrade]) {
+            worstGrade = svcGrade
+        }
+        echo "  │  ${scan.serviceName.padRight(20)} [${scan.tag}]  zafiyet: ${svcVulns}  → ${svcGrade}"
     }
 
-    def projectGrade = project.grade?.toUpperCase()
-    echo """
-  ┌─ Proje Raporu
-  │  📊 Not   : ${projectGrade}  (${project.imageCount} imaj)"""
-    project.images?.each { img ->
-        echo "  │  ${img.imageName.padRight(30)} ${img.grade}  (zafiyet: ${img.totalVulns ?: 0})"
-    }
-    echo "  └─ 🎯 Eşik Notu: ${grade}"
-
-    if (!gradeOrder.containsKey(projectGrade)) {
-        error "❌ Bilinmeyen not: '${projectGrade}'"
-    }
+    echo """  └─ Özet
+     📊 Proje Notu : ${worstGrade}
+     🎯 Eşik Notu  : ${grade}"""
 
     def elapsed = ((System.currentTimeMillis() - t0) / 1000).toInteger()
-    if (gradeOrder[projectGrade] <= gradeOrder[grade]) {
+    if (gradeOrder[worstGrade] <= gradeOrder[grade]) {
         echo """
 ╔${bar}╗
 ║  ✅  OSV Quality Gate Geçti  (${elapsed}s)
 ╚${bar}╝
-  📊 Proje Notu : ${projectGrade}  ≤  Eşik : ${grade}"""
+  📊 Proje Notu : ${worstGrade}  ≤  Eşik : ${grade}"""
     } else {
         echo """
 ╔${bar}╗
 ║  ❌  OSV Quality Gate Başarısız  (${elapsed}s)
 ╚${bar}╝
-  🔴 Proje Notu : ${projectGrade}  >  Eşik : ${grade}"""
-        error "⛔ [${projectName}] OSV Quality Gate başarısız — Proje notu: ${projectGrade}, Eşik: ${grade}"
+  🔴 Proje Notu : ${worstGrade}  >  Eşik : ${grade}"""
+        error "⛔ [${projectName}] OSV Quality Gate başarısız — Proje notu: ${worstGrade}, Eşik: ${grade}"
     }
+}
+
+// totalVulns sayısına göre harf notu (frontend ile aynı eşikler)
+def computeOsvGrade(int vulns) {
+    if (vulns == 0)  return 'A'
+    if (vulns <= 2)  return 'B'
+    if (vulns <= 5)  return 'C'
+    if (vulns <= 9)  return 'D'
+    return 'F'
 }
