@@ -23,16 +23,14 @@ def call() {
         DOCKERSCAN_BACKEND_PORT : '3018',                       // DockerScan backend API portu (BACKEND_PORT)
 
         // ── Checkov ──────────────────────────────────────────────────────────
-        CHECKOV_ENABLED               : true,                                 // false → adımı atla
-        CHECKOV_SOFT_FAIL             : true,                                 // true → hata olsa pipeline devam eder
-        CHECKOV_SCRIPT_PATH           : '/app/DockerScan/trigger-checkov.sh', // uzak sunucudaki tetikleyici script
-        CHECKOV_QUALITY_GATE_MAX_FAILED: 0,                                   // izin verilen maks başarısız check sayısı
+        CHECKOV_ENABLED     : true,                                 // false → adımı atla
+        CHECKOV_SOFT_FAIL   : true,                                 // true → hata olsa pipeline devam eder
+        CHECKOV_SCRIPT_PATH : '/app/DockerScan/trigger-checkov.sh', // uzak sunucudaki tetikleyici script
 
         // ── OSV-Scanner ──────────────────────────────────────────────────────
-        OSV_ENABLED              : true,                                 // false → adımı atla
-        OSV_SOFT_FAIL            : true,                                 // true → hata olsa pipeline devam eder
-        OSV_SCRIPT_PATH          : '/app/DockerScan/trigger-osv.sh',     // uzak sunucudaki tetikleyici script
-        OSV_QUALITY_GATE_GRADE   : 'C',                                  // A-F arası eşik notu (A=en iyi)
+        OSV_ENABLED         : true,                                 // false → adımı atla
+        OSV_SOFT_FAIL       : true,                                 // true → hata olsa pipeline devam eder
+        OSV_SCRIPT_PATH     : '/app/DockerScan/trigger-osv.sh',     // uzak sunucudaki tetikleyici script
 
     ]
 }
