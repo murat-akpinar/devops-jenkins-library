@@ -146,7 +146,7 @@ pipeline {
         }
 
         stage('Checkov IaC Scan')        { steps { checkovScan(env.VERSION) } }
-        stage('Checkov Quality Gate')    { steps { checkovQualityGate(env.APP, 0) } }
+        stage('Checkov Quality Gate')    { steps { checkovQualityGate(env.APP, 'C') } }
         stage('OSV-Scanner Scan')        { steps { osvScan(env.VERSION) } }
         stage('OSV Quality Gate')        { steps { osvQualityGate(env.APP, 'C') } }
         stage('DockerScan Scan')         { steps { trivyScan(env.VERSION) } }
