@@ -1,4 +1,4 @@
-def call(String tag, String projectName = '') {
+def call(String tag) {
     def CFG         = globalConfig()
     def enabled     = CFG.CHECKOV_ENABLED   != false
     def softFail    = CFG.CHECKOV_SOFT_FAIL == true
@@ -68,8 +68,4 @@ def call(String tag, String projectName = '') {
 ╚${bar}╝"""
     }
 
-    if (projectName?.trim()) {
-        def maxFailed = (CFG.CHECKOV_QUALITY_GATE_MAX_FAILED instanceof Integer) ? CFG.CHECKOV_QUALITY_GATE_MAX_FAILED : 0
-        checkovQualityGate(projectName, maxFailed)
-    }
 }
