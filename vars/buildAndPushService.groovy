@@ -50,8 +50,9 @@ def call(Map config) {
   🖥️  Nexus   : ${nexusRegistry}/repository/${registryPath}/
   ${useHarbor ? "🚢  Harbor  : ${jenkinsRegistry}" : "🚢  Harbor  : kullanılmıyor"}"""
 
-    checkovScan(version)
-    osvScan(version)
+    def projectName = config.projectName ?: env.APP ?: ''
+    checkovScan(version, projectName)
+    osvScan(version, projectName)
 
     def secretSetup = useNexusAuth ? """
         _NEXUS_USER_FILE=\$(mktemp)

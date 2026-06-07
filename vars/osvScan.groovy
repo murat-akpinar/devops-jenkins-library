@@ -1,4 +1,4 @@
-def call(String tag) {
+def call(String tag, String projectName = '') {
     def CFG         = globalConfig()
     def enabled     = CFG.OSV_ENABLED   != false
     def softFail    = CFG.OSV_SOFT_FAIL == true
@@ -69,5 +69,10 @@ def call(String tag) {
 ╔${bar}╗
 ║  ✅  OSV-Scanner Tamamlandı  (${elapsed}s)
 ╚${bar}╝"""
+    }
+
+    if (projectName?.trim()) {
+        def grade = CFG.OSV_QUALITY_GATE_GRADE ?: 'C'
+        osvQualityGate(projectName, grade)
     }
 }
