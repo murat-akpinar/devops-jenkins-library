@@ -69,7 +69,9 @@ devops-jenkins-library/
 │   ├── trivyScan.groovy               # DockerScan security scan
 │   ├── trivyQualityGate.groovy        # DockerScan Quality Gate check
 │   ├── checkovScan.groovy             # Checkov IaC security scan
+│   ├── checkovQualityGate.groovy      # Checkov Quality Gate check
 │   ├── osvScan.groovy                 # OSV dependency vulnerability scan
+│   ├── osvQualityGate.groovy          # OSV Quality Gate check
 │   ├── sendEmailNotification.groovy   # Email notification
 │   └── emailTeams.groovy              # Team email list
 ├── Example/                           # Example files
@@ -309,7 +311,7 @@ def changed = checkDiff(svc.path, env.GIT_PREVIOUS_SUCCESSFUL_COMMIT, env.GIT_CO
 
 ### `buildAndPushService(config)`
 
-Builds a Docker image and pushes it to Nexus and optionally Harbor. Before building, it automatically runs `checkovScan` (IaC security scan) and `osvScan` (dependency vulnerability scan).
+Builds a Docker image and pushes it to Nexus and optionally Harbor.
 
 **Parameters (Map):**
 
@@ -492,14 +494,12 @@ trivyQualityGate(env.APP, 'D')  // A, B, C, D pass; only F fails
 
 ---
 
-### `checkovScan(servicePath, imageName, tag)`
+### `checkovScan(tag)`
 
-Runs a Checkov IaC (Infrastructure as Code) security scan over the service source files. Triggered automatically by `buildAndPushService()` before each build.
+Runs a Checkov IaC (Infrastructure as Code) security scan over all built services. Reads `services.yml` internally and scans only services whose `DO_` flag is `'1'`.
 
 **Parameters:**
-- `servicePath` (String): Service directory (source files to scan)
-- `imageName` (String): Service/image name
-- `tag` (String): Image tag
+- `tag` (String): Image tag to scan
 
 **Controlled via `globalConfig()`:**
 
@@ -507,20 +507,49 @@ Runs a Checkov IaC (Infrastructure as Code) security scan over the service sourc
 |-----|---------|-------------|
 | `CHECKOV_ENABLED` | `true` | `false` → skip step |
 | `CHECKOV_SOFT_FAIL` | `true` | `true` → pipeline continues on failure |
-| `CHECKOV_SCRIPT_PATH` | `/app/DockScan/trigger-checkov.sh` | Trigger script path on remote host |
+| `CHECKOV_SCRIPT_PATH` | `/app/DockerScan/trigger-checkov.sh` | Trigger script path on remote host |
 | `DOCKERSCAN_HOST` | `YOUR_DOCKERSCAN_HOST_IP` | Remote scan host |
 | `DOCKERSCAN_SSH_USER` | `your-user` | SSH username |
 
+```groovy
+checkovScan(env.VERSION)
+```
+
 ---
 
-### `osvScan(servicePath, imageName, tag)`
+### `checkovQualityGate(projectName, grade)`
 
-Runs an OSV-Scanner dependency vulnerability scan over the service source files. Triggered automatically by `buildAndPushService()` before each build.
+Queries the DockerScan Dashboard API to check the Checkov security grade of the project. The grade is calculated from the pass rate of IaC checks.
 
 **Parameters:**
-- `servicePath` (String): Service directory (source files to scan)
-- `imageName` (String): Service/image name
-- `tag` (String): Image tag
+- `projectName` (String): Project name in DockerScan Dashboard (usually `env.APP`)
+- `grade` (String, optional): Minimum passing grade (default: `'C'`)
+
+**Grade scale:** `A` (best) → `B` → `C` → `D` → `F` (worst)
+
+**Grade calculation from pass rate:**
+
+| Grade | Pass Rate |
+|-------|-----------|
+| A | 100% |
+| B | ≥ 90% |
+| C | ≥ 75% |
+| D | ≥ 50% |
+| F | < 50% |
+
+```groovy
+checkovQualityGate(env.APP, 'C')  // A, B, C pass; D, F fail the pipeline
+checkovQualityGate(env.APP, 'D')  // A, B, C, D pass; only F fails
+```
+
+---
+
+### `osvScan(tag)`
+
+Runs an OSV-Scanner dependency vulnerability scan over all built services. Reads `services.yml` internally and scans only services whose `DO_` flag is `'1'`.
+
+**Parameters:**
+- `tag` (String): Image tag to scan
 
 **Controlled via `globalConfig()`:**
 
@@ -528,9 +557,30 @@ Runs an OSV-Scanner dependency vulnerability scan over the service source files.
 |-----|---------|-------------|
 | `OSV_ENABLED` | `true` | `false` → skip step |
 | `OSV_SOFT_FAIL` | `true` | `true` → pipeline continues on failure |
-| `OSV_SCRIPT_PATH` | `/app/DockScan/trigger-osv.sh` | Trigger script path on remote host |
+| `OSV_SCRIPT_PATH` | `/app/DockerScan/trigger-osv.sh` | Trigger script path on remote host |
 | `DOCKERSCAN_HOST` | `YOUR_DOCKERSCAN_HOST_IP` | Remote scan host |
 | `DOCKERSCAN_SSH_USER` | `your-user` | SSH username |
+
+```groovy
+osvScan(env.VERSION)
+```
+
+---
+
+### `osvQualityGate(projectName, grade)`
+
+Queries the DockerScan Dashboard API to check the OSV-Scanner security grade of the project.
+
+**Parameters:**
+- `projectName` (String): Project name in DockerScan Dashboard (usually `env.APP`)
+- `grade` (String, optional): Minimum passing grade (default: `'C'`)
+
+**Grade scale:** `A` (best) → `B` → `C` → `D` → `F` (worst)
+
+```groovy
+osvQualityGate(env.APP, 'C')  // A, B, C pass; D, F fail the pipeline
+osvQualityGate(env.APP, 'D')  // A, B, C, D pass; only F fails
+```
 
 ---
 
