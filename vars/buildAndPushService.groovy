@@ -50,8 +50,8 @@ def call(Map config) {
   🖥️  Nexus   : ${nexusRegistry}/repository/${registryPath}/
   ${useHarbor ? "🚢  Harbor  : ${jenkinsRegistry}" : "🚢  Harbor  : kullanılmıyor"}"""
 
-    checkovScan(servicePath, serviceName, version)
-    osvScan(servicePath, serviceName, version)
+    checkovScan(version)
+    osvScan(version)
 
     def secretSetup = useNexusAuth ? """
         _NEXUS_USER_FILE=\$(mktemp)
