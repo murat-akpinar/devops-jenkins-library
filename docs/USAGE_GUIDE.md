@@ -591,7 +591,13 @@ def call() {
         DOCKERSCAN_HOST              : '192.168.1.200',
         DOCKERSCAN_SSH_USER          : 'jenkins',
         DOCKERSCAN_SCRIPT_PATH       : '/app/DockerScan/trigger-nexus.sh',  // DockerScan: https://github.com/murat-akpinar/DockerScan
-        DOCKERSCAN_BACKEND_PORT : '3018',
+        DOCKERSCAN_BACKEND_PORT      : '3018',
+        CHECKOV_ENABLED     : true,
+        CHECKOV_SOFT_FAIL   : true,
+        CHECKOV_SCRIPT_PATH : '/app/vaultscan/trigger-checkov.sh',
+        OSV_ENABLED         : true,
+        OSV_SOFT_FAIL       : true,
+        OSV_SCRIPT_PATH     : '/app/vaultscan/trigger-osv.sh',
     ]
 }
 ```

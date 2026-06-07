@@ -37,6 +37,8 @@ def call(Map config) {
     }
 
     echo "🚀 [${serviceName}] Build & Push başlıyor..."
+    checkovScan(servicePath, serviceName, version)
+    osvScan(servicePath, serviceName, version)
 
     def useNexusAuth = nexusRepoCredentialId?.trim()
     def useHarbor    = jenkinsRegistry?.trim() && harborCredentialId?.trim()

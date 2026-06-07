@@ -68,6 +68,8 @@ devops-jenkins-library/
 │   ├── deployService.groovy           # Deploy işlemi
 │   ├── trivyScan.groovy               # DockerScan güvenlik taraması
 │   ├── trivyQualityGate.groovy        # DockerScan Quality Gate kontrolü
+│   ├── checkovScan.groovy             # Checkov IaC güvenlik taraması
+│   ├── osvScan.groovy                 # OSV bağımlılık güvenlik açığı taraması
 │   ├── sendEmailNotification.groovy   # E-posta bildirimi
 │   └── emailTeams.groovy              # Takım e-posta listesi
 ├── Example/                           # Örnek dosyalar
@@ -207,7 +209,17 @@ Ortak yapılandırmayı (Nexus, Harbor, SonarQube, Trivy) döndürür. `globalCo
     DOCKERSCAN_HOST              : "YOUR_DOCKERSCAN_HOST_IP",
     DOCKERSCAN_SSH_USER          : "your-user",
     DOCKERSCAN_SCRIPT_PATH       : "/app/DockerScan/trigger-nexus.sh",
-    DOCKERSCAN_BACKEND_PORT : "3018",
+    DOCKERSCAN_BACKEND_PORT      : "3018",
+
+    // Checkov — IaC güvenlik taraması
+    CHECKOV_ENABLED     : true,                // false → adımı atla
+    CHECKOV_SOFT_FAIL   : true,                // true → hata olsa pipeline devam eder
+    CHECKOV_SCRIPT_PATH : "/app/vaultscan/trigger-checkov.sh",
+
+    // OSV-Scanner — bağımlılık güvenlik açığı taraması
+    OSV_ENABLED         : true,                // false → adımı atla
+    OSV_SOFT_FAIL       : true,                // true → hata olsa pipeline devam eder
+    OSV_SCRIPT_PATH     : "/app/vaultscan/trigger-osv.sh",
 ]
 ```
 
@@ -297,7 +309,7 @@ def changed = checkDiff(svc.path, env.GIT_PREVIOUS_SUCCESSFUL_COMMIT, env.GIT_CO
 
 ### `buildAndPushService(config)`
 
-Docker imajını build edip Nexus ve opsiyonel olarak Harbor'a push eder.
+Docker imajını build edip Nexus ve opsiyonel olarak Harbor'a push eder. Build öncesinde otomatik olarak `checkovScan` (IaC güvenlik taraması) ve `osvScan` (bağımlılık güvenlik açığı taraması) çalıştırır.
 
 **Parametreler (Map):**
 
@@ -477,6 +489,48 @@ DockerScan Dashboard API'yi sorgulayarak projenin güvenlik notunu kontrol eder.
 trivyQualityGate(env.APP, 'C')  // A, B, C geçer; D, F pipeline'ı durdurur
 trivyQualityGate(env.APP, 'D')  // A, B, C, D geçer; sadece F durdurur
 ```
+
+---
+
+### `checkovScan(servicePath, imageName, tag)`
+
+Servis kaynak dosyaları üzerinde Checkov IaC (Infrastructure as Code) güvenlik taraması çalıştırır. Her build öncesinde `buildAndPushService()` tarafından otomatik tetiklenir.
+
+**Parametreler:**
+- `servicePath` (String): Servis dizini (taranacak kaynak dosyalar)
+- `imageName` (String): Servis/imaj adı
+- `tag` (String): İmaj tag'i
+
+**`globalConfig()` üzerinden kontrol:**
+
+| Key | Varsayılan | Açıklama |
+|-----|------------|----------|
+| `CHECKOV_ENABLED` | `true` | `false` → adımı atla |
+| `CHECKOV_SOFT_FAIL` | `true` | `true` → hata olsa pipeline devam eder |
+| `CHECKOV_SCRIPT_PATH` | `/app/vaultscan/trigger-checkov.sh` | Uzak sunucudaki tetikleyici script |
+| `TRIVY_HOST` | `YOUR_TRIVY_HOST_IP` | Uzak tarama sunucusu |
+| `TRIVY_SSH_USER` | `your-user` | SSH kullanıcı adı |
+
+---
+
+### `osvScan(servicePath, imageName, tag)`
+
+Servis kaynak dosyaları üzerinde OSV-Scanner bağımlılık güvenlik açığı taraması çalıştırır. Her build öncesinde `buildAndPushService()` tarafından otomatik tetiklenir.
+
+**Parametreler:**
+- `servicePath` (String): Servis dizini (taranacak kaynak dosyalar)
+- `imageName` (String): Servis/imaj adı
+- `tag` (String): İmaj tag'i
+
+**`globalConfig()` üzerinden kontrol:**
+
+| Key | Varsayılan | Açıklama |
+|-----|------------|----------|
+| `OSV_ENABLED` | `true` | `false` → adımı atla |
+| `OSV_SOFT_FAIL` | `true` | `true` → hata olsa pipeline devam eder |
+| `OSV_SCRIPT_PATH` | `/app/vaultscan/trigger-osv.sh` | Uzak sunucudaki tetikleyici script |
+| `TRIVY_HOST` | `YOUR_TRIVY_HOST_IP` | Uzak tarama sunucusu |
+| `TRIVY_SSH_USER` | `your-user` | SSH kullanıcı adı |
 
 ---
 

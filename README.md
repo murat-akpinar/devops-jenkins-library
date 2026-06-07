@@ -68,6 +68,8 @@ devops-jenkins-library/
 │   ├── deployService.groovy           # Deploy operation
 │   ├── trivyScan.groovy               # DockerScan security scan
 │   ├── trivyQualityGate.groovy        # DockerScan Quality Gate check
+│   ├── checkovScan.groovy             # Checkov IaC security scan
+│   ├── osvScan.groovy                 # OSV dependency vulnerability scan
 │   ├── sendEmailNotification.groovy   # Email notification
 │   └── emailTeams.groovy              # Team email list
 ├── Example/                           # Example files
@@ -207,7 +209,17 @@ Returns the shared configuration (Nexus, Harbor, SonarQube, Trivy). Edit `global
     DOCKERSCAN_HOST              : "YOUR_DOCKERSCAN_HOST_IP",
     DOCKERSCAN_SSH_USER          : "your-user",
     DOCKERSCAN_SCRIPT_PATH       : "/app/DockerScan/trigger-nexus.sh",
-    DOCKERSCAN_BACKEND_PORT : "3018",
+    DOCKERSCAN_BACKEND_PORT      : "3018",
+
+    // Checkov — IaC security scan
+    CHECKOV_ENABLED     : true,                // false → skip step
+    CHECKOV_SOFT_FAIL   : true,                // true → pipeline continues on failure
+    CHECKOV_SCRIPT_PATH : "/app/vaultscan/trigger-checkov.sh",
+
+    // OSV-Scanner — dependency vulnerability scan
+    OSV_ENABLED         : true,                // false → skip step
+    OSV_SOFT_FAIL       : true,                // true → pipeline continues on failure
+    OSV_SCRIPT_PATH     : "/app/vaultscan/trigger-osv.sh",
 ]
 ```
 
@@ -297,7 +309,7 @@ def changed = checkDiff(svc.path, env.GIT_PREVIOUS_SUCCESSFUL_COMMIT, env.GIT_CO
 
 ### `buildAndPushService(config)`
 
-Builds a Docker image and pushes it to Nexus and optionally Harbor.
+Builds a Docker image and pushes it to Nexus and optionally Harbor. Before building, it automatically runs `checkovScan` (IaC security scan) and `osvScan` (dependency vulnerability scan).
 
 **Parameters (Map):**
 
@@ -477,6 +489,48 @@ Queries the DockerScan Dashboard API to check the security grade of the project.
 trivyQualityGate(env.APP, 'C')  // A, B, C pass; D, F fail the pipeline
 trivyQualityGate(env.APP, 'D')  // A, B, C, D pass; only F fails
 ```
+
+---
+
+### `checkovScan(servicePath, imageName, tag)`
+
+Runs a Checkov IaC (Infrastructure as Code) security scan over the service source files. Triggered automatically by `buildAndPushService()` before each build.
+
+**Parameters:**
+- `servicePath` (String): Service directory (source files to scan)
+- `imageName` (String): Service/image name
+- `tag` (String): Image tag
+
+**Controlled via `globalConfig()`:**
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `CHECKOV_ENABLED` | `true` | `false` → skip step |
+| `CHECKOV_SOFT_FAIL` | `true` | `true` → pipeline continues on failure |
+| `CHECKOV_SCRIPT_PATH` | `/app/vaultscan/trigger-checkov.sh` | Trigger script path on remote host |
+| `TRIVY_HOST` | `YOUR_TRIVY_HOST_IP` | Remote scan host |
+| `TRIVY_SSH_USER` | `your-user` | SSH username |
+
+---
+
+### `osvScan(servicePath, imageName, tag)`
+
+Runs an OSV-Scanner dependency vulnerability scan over the service source files. Triggered automatically by `buildAndPushService()` before each build.
+
+**Parameters:**
+- `servicePath` (String): Service directory (source files to scan)
+- `imageName` (String): Service/image name
+- `tag` (String): Image tag
+
+**Controlled via `globalConfig()`:**
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `OSV_ENABLED` | `true` | `false` → skip step |
+| `OSV_SOFT_FAIL` | `true` | `true` → pipeline continues on failure |
+| `OSV_SCRIPT_PATH` | `/app/vaultscan/trigger-osv.sh` | Trigger script path on remote host |
+| `TRIVY_HOST` | `YOUR_TRIVY_HOST_IP` | Remote scan host |
+| `TRIVY_SSH_USER` | `your-user` | SSH username |
 
 ---
 
