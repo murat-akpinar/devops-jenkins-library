@@ -57,6 +57,8 @@ def call(String projectName, String grade = 'C') {
     }
 
     def response = readJSON text: responseText
+    echo "  🔍 [DEBUG] Ham yanıt: ${responseText}"
+    echo "  🔍 [DEBUG] projects[0]: ${response.projects?.getAt(0)}"
     def project  = response.projects?.find { it?.projectName == projectName }
     if (!project) {
         def elapsed = ((System.currentTimeMillis() - t0) / 1000).toInteger()
@@ -65,8 +67,8 @@ def call(String projectName, String grade = 'C') {
 ║  ❌  Checkov Quality Gate Başarısız  (${elapsed}s)
 ╚${bar}╝
   🔴 Hata    : '${projectName}' projesi bulunamadı
-  📋 Mevcut  : ${response.projects?.collect { it.projectName }}"""
-        error "❌ '${projectName}' projesi Checkov Dashboard'da bulunamadı. Mevcut: ${response.projects?.collect { it.projectName }}"
+  📋 Mevcut  : ${response.projects?.collect { it?.projectName }}"""
+        error "❌ '${projectName}' projesi Checkov Dashboard'da bulunamadı. Mevcut: ${response.projects?.collect { it?.projectName }}"
     }
 
     def totalPassed = project.passed ?: 0
