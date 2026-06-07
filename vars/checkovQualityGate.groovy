@@ -57,7 +57,7 @@ def call(String projectName, String grade = 'C') {
     }
 
     def response = readJSON text: responseText
-    def project  = response.projects?.find { it.projectName == projectName }
+    def project  = response.projects?.find { it?.projectName == projectName }
     if (!project) {
         def elapsed = ((System.currentTimeMillis() - t0) / 1000).toInteger()
         echo """
