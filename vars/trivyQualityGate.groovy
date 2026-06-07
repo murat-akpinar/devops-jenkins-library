@@ -4,20 +4,29 @@
 
 def call(String projectName, String grade = 'C') {
     def CFG          = globalConfig()
-    def dockerScanHost     = CFG.DOCKERSCAN_HOST
-    def sshUser       = CFG.DOCKERSCAN_SSH_USER
+    def dockerScanHost    = CFG.DOCKERSCAN_HOST
+    def sshUser      = CFG.DOCKERSCAN_SSH_USER
     def dashboardPort = CFG.DOCKERSCAN_BACKEND_PORT
-    def dashboardUrl  = "http://${dockerScanHost}:${dashboardPort}"
+    def dashboardUrl = "http://${dockerScanHost}:${dashboardPort}"
     def gradeOrder   = [A: 1, B: 2, C: 3, D: 4, F: 5]
-    def retryCount   = 12   // toplam deneme
-    def retryDelay   = 10   // saniye arayla → max ~2 dakika bekler
+    def retryCount   = 12
+    def retryDelay   = 10
 
     grade = grade.toUpperCase()
     if (!gradeOrder.containsKey(grade)) {
         error "❌ Geçersiz grade: '${grade}'. Geçerli değerler: A, B, C, D, F"
     }
 
-    echo "⏳ [${projectName}] DockerScan Quality Gate kontrol ediliyor (Eşik: ${grade})..."
+    def bar = '═' * 60
+    echo """
+╔${bar}╗
+║  🎯  Trivy Quality Gate Kontrol Ediliyor
+╚${bar}╝
+  📦 Proje     : ${projectName}
+  🏅 Eşik      : ${grade}
+  🌐 Dashboard : ${dashboardUrl}"""
+
+    def t0 = System.currentTimeMillis()
 
     def responseText = ''
     for (int attempt = 1; attempt <= retryCount; attempt++) {
@@ -27,32 +36,62 @@ def call(String projectName, String grade = 'C') {
             returnStdout: true
         ).trim()
         if (responseText) {
-            echo "  ✅ API yanıtı alındı (deneme ${attempt}/${retryCount})"
+            echo "  ┌─ [${attempt}/${retryCount}] API yanıtı alındı"
+            echo "  └─ ✅ Dashboard yanıt verdi"
             break
         }
-        echo "  ⏳ API henüz hazır değil, bekleniyor... (${attempt}/${retryCount})"
+        echo "  ⏳ (${attempt}/${retryCount}) API henüz hazır değil, bekleniyor..."
     }
 
     if (!responseText) {
-        error "❌ DockerScan Dashboard API ${retryCount * retryDelay}s içinde yanıt vermedi: ${dashboardUrl}/api/grades?project=${projectName}"
+        def elapsed = ((System.currentTimeMillis() - t0) / 1000).toInteger()
+        echo """
+╔${bar}╗
+║  ❌  Trivy Quality Gate Başarısız  (${elapsed}s)
+╚${bar}╝
+  🔴 Hata : Dashboard ${retryCount * retryDelay}s içinde yanıt vermedi"""
+        error "❌ Trivy Dashboard API ${retryCount * retryDelay}s içinde yanıt vermedi: ${dashboardUrl}/api/grades?project=${projectName}"
     }
-    def response     = readJSON text: responseText
-    def project      = response.projects?.find { it.projectName == projectName }
+
+    def response = readJSON text: responseText
+    def project  = response.projects?.find { it.projectName == projectName }
     if (!project) {
-        error "❌ '${projectName}' projesi DockerScan Dashboard'da bulunamadı. Mevcut: ${response.projects?.collect { it.projectName }}"
+        def elapsed = ((System.currentTimeMillis() - t0) / 1000).toInteger()
+        echo """
+╔${bar}╗
+║  ❌  Trivy Quality Gate Başarısız  (${elapsed}s)
+╚${bar}╝
+  🔴 Hata    : '${projectName}' projesi bulunamadı
+  📋 Mevcut  : ${response.projects?.collect { it.projectName }}"""
+        error "❌ '${projectName}' projesi Trivy Dashboard'da bulunamadı. Mevcut: ${response.projects?.collect { it.projectName }}"
     }
+
     def projectGrade = project.grade?.toUpperCase()
-    echo "📊 Proje: ${projectName}  →  Not: ${projectGrade}  (${project.imageCount} imaj)"
+    echo """
+  ┌─ Proje Raporu
+  │  📊 Not   : ${projectGrade}  (${project.imageCount} imaj)"""
     project.images?.each { img ->
-        echo "  ${img.imageName.padRight(30)} ${img.grade}  (toplam zafiyet: ${img.totalVulns ?: 0})"
+        echo "  │  ${img.imageName.padRight(30)} ${img.grade}  (zafiyet: ${img.totalVulns ?: 0})"
     }
-    echo "🎯 Eşik Notu: ${grade}"
+    echo "  └─ 🎯 Eşik Notu: ${grade}"
+
     if (!gradeOrder.containsKey(projectGrade)) {
         error "❌ Bilinmeyen not: '${projectGrade}'"
     }
+
+    def elapsed = ((System.currentTimeMillis() - t0) / 1000).toInteger()
     if (gradeOrder[projectGrade] <= gradeOrder[grade]) {
-        echo "✅ [${projectName}] DockerScan Quality Gate geçti (${projectGrade} ≤ ${grade})"
+        echo """
+╔${bar}╗
+║  ✅  Trivy Quality Gate Geçti  (${elapsed}s)
+╚${bar}╝
+  📊 Proje Notu : ${projectGrade}  ≤  Eşik : ${grade}"""
     } else {
-        error "⛔ [${projectName}] DockerScan Quality Gate başarısız — Proje notu: ${projectGrade}, Eşik: ${grade}"
+        echo """
+╔${bar}╗
+║  ❌  Trivy Quality Gate Başarısız  (${elapsed}s)
+╚${bar}╝
+  🔴 Proje Notu : ${projectGrade}  >  Eşik : ${grade}"""
+        error "⛔ [${projectName}] Trivy Quality Gate başarısız — Proje notu: ${projectGrade}, Eşik: ${grade}"
     }
 }

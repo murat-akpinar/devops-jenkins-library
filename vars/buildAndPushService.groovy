@@ -28,21 +28,30 @@ def call(Map config) {
             } else {
                 content += (content.endsWith("\n") ? "" : "\n") + "VERSION=${version}\n"
             }
-            echo "📄 ${envPath} bulundu, VERSION güncellendi"
+            echo "  📄 ${envPath} bulundu, VERSION güncellendi"
         } else {
             content = "# Environment variables\nVERSION=${version}\n"
-            echo "📄 ${envPath} bulunamadı, build için oluşturuldu"
+            echo "  📄 ${envPath} bulunamadı, build için oluşturuldu"
         }
         writeFile file: envPath, text: content
     }
 
-    echo "🚀 [${serviceName}] Build & Push başlıyor..."
-    checkovScan(servicePath, serviceName, version)
-    osvScan(servicePath, serviceName, version)
-
     def useNexusAuth = nexusRepoCredentialId?.trim()
     def useHarbor    = jenkinsRegistry?.trim() && harborCredentialId?.trim()
     def cacheFrom    = "${nexusRegistry}/repository/${registryPath}/${serviceName}:latest"
+
+    def bar = '═' * 60
+    def t0  = System.currentTimeMillis()
+    echo """
+╔${bar}╗
+║  🚀  Build & Push Başlıyor
+╚${bar}╝
+  📦 Servis  : ${serviceName}:${version}
+  🖥️  Nexus   : ${nexusRegistry}/repository/${registryPath}/
+  ${useHarbor ? "🚢  Harbor  : ${jenkinsRegistry}" : "🚢  Harbor  : kullanılmıyor"}"""
+
+    checkovScan(servicePath, serviceName, version)
+    osvScan(servicePath, serviceName, version)
 
     def secretSetup = useNexusAuth ? """
         _NEXUS_USER_FILE=\$(mktemp)
@@ -59,33 +68,38 @@ def call(Map config) {
 
     def shellScript = """
         set -e
-        echo "[${serviceName}] Build & Push ${serviceName}:${version}"
 
-        # .env dosyası kontrolü (varsa)
         ${hasEnvFile ? """
+        { set +x; } 2>/dev/null; printf '  ┌─[1/4] .env dosyası kontrol ediliyor...\\n'; { set -x; } 2>/dev/null
         if [ ! -f ${envFile} ]; then
             echo "❌ ${envFile} dosyası bulunamadı! Build için ${envFile} dosyası gereklidir."
             exit 1
         fi
-        echo "✅ ${envFile} dosyası mevcut"
+        { set +x; } 2>/dev/null; printf '  └─ ✅ ${envFile} mevcut\\n'; { set -x; } 2>/dev/null
         """ : ""}
 
         ${secretSetup}
 
+        { set +x; } 2>/dev/null; printf '  ┌─[2/4] Docker image build ediliyor...\\n'; { set -x; } 2>/dev/null
         cd ${servicePath}
         ${dockerBuildCommand}
+        { set +x; } 2>/dev/null; printf '  └─ ✅ Build tamamlandı\\n'; { set -x; } 2>/dev/null
+
+        { set +x; } 2>/dev/null; printf '  ┌─[3/4] Nexus registry push ediliyor...\\n'; { set -x; } 2>/dev/null
         docker tag ${serviceName}:${version} ${nexusRegistry}/repository/${registryPath}/${serviceName}:${version}
         docker push ${nexusRegistry}/repository/${registryPath}/${serviceName}:${version}
         docker tag ${serviceName}:${version} ${nexusRegistry}/repository/${registryPath}/${serviceName}:latest
         docker push ${nexusRegistry}/repository/${registryPath}/${serviceName}:latest
+        { set +x; } 2>/dev/null; printf '  └─ ✅ Nexus push tamamlandı\\n'; { set -x; } 2>/dev/null
 
         ${useHarbor ? """
-        echo "🔐 Harbor login yapılıyor: ${jenkinsRegistry}"
+        { set +x; } 2>/dev/null; printf '  ┌─[4/4] Harbor registry push ediliyor...\\n'; { set -x; } 2>/dev/null
         printf '%s' "\$HARBOR_PASS" | docker login ${jenkinsRegistry.split('/')[0]} -u "\$HARBOR_USER" --password-stdin
         docker pull ${nexusRegistry}/repository/${registryPath}/${serviceName}:${version}
         docker tag ${nexusRegistry}/repository/${registryPath}/${serviceName}:${version} ${jenkinsRegistry}/${serviceName}:${version}
         docker push ${jenkinsRegistry}/${serviceName}:${version}
-        """ : "# Harbor kullanılmıyor, push atlandı"}
+        { set +x; } 2>/dev/null; printf '  └─ ✅ Harbor push tamamlandı\\n'; { set -x; } 2>/dev/null
+        """ : ""}
 
         cd ..
 
@@ -101,11 +115,27 @@ def call(Map config) {
         bindings << usernamePassword(credentialsId: harborCredentialId, usernameVariable: 'HARBOR_USER', passwordVariable: 'HARBOR_PASS')
     }
 
-    if (bindings) {
-        withCredentials(bindings) { sh shellScript }
-    } else {
-        sh shellScript
+    try {
+        if (bindings) {
+            withCredentials(bindings) { sh shellScript }
+        } else {
+            sh shellScript
+        }
+        def elapsed = ((System.currentTimeMillis() - t0) / 1000).toInteger()
+        echo """
+╔${bar}╗
+║  ✅  Build & Push Tamamlandı  (${elapsed}s)
+╚${bar}╝
+  📦 ${serviceName}:${version}"""
+    } catch (e) {
+        def elapsed = ((System.currentTimeMillis() - t0) / 1000).toInteger()
+        echo """
+╔${bar}╗
+║  ❌  Build & Push Başarısız  (${elapsed}s)
+╚${bar}╝
+  🔴 Hata   : ${e.message}
+  📦 Servis : ${serviceName}:${version}
+  🖥️  Nexus  : ${nexusRegistry}/repository/${registryPath}/"""
+        error "❌ [Build] ${serviceName} build & push başarısız: ${e.message}"
     }
-
-    echo "✅ [${serviceName}] Build & Push tamamlandı"
 }
