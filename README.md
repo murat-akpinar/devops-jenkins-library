@@ -5,7 +5,7 @@
 [![Groovy](https://img.shields.io/badge/Groovy-4.x-1a1a1a?style=flat-square&labelColor=1a1a1a&color=4298B8&logo=apachegroovy&logoColor=fff)](https://groovy-lang.org)
 [![Docker](https://img.shields.io/badge/Docker-compose-1a1a1a?style=flat-square&labelColor=1a1a1a&color=2496ED&logo=docker&logoColor=fff)](https://www.docker.com)
 [![SonarQube](https://img.shields.io/badge/SonarQube-analysis-1a1a1a?style=flat-square&labelColor=1a1a1a&color=4E9BCD&logo=sonarqube&logoColor=fff)](https://www.sonarsource.com/products/sonarqube/)
-[![Trivy](https://img.shields.io/badge/Trivy-security%20scan-1a1a1a?style=flat-square&labelColor=1a1a1a&color=1904DA)](https://trivy.dev)
+[![DockerScan](https://img.shields.io/badge/DockerScan-security%20scan-1a1a1a?style=flat-square&labelColor=1a1a1a&color=1904DA)](https://trivy.dev)
 [![Nexus](https://img.shields.io/badge/Nexus-registry-1a1a1a?style=flat-square&labelColor=1a1a1a&color=1B75BB)](https://www.sonatype.com/products/sonatype-nexus-repository)
 
 # Jenkins Shared Library
@@ -214,12 +214,12 @@ Returns the shared configuration (Nexus, Harbor, SonarQube, Trivy). Edit `global
     // Checkov — IaC security scan
     CHECKOV_ENABLED     : true,                // false → skip step
     CHECKOV_SOFT_FAIL   : true,                // true → pipeline continues on failure
-    CHECKOV_SCRIPT_PATH : "/app/vaultscan/trigger-checkov.sh",
+    CHECKOV_SCRIPT_PATH : "/app/DockScan/trigger-checkov.sh",
 
     // OSV-Scanner — dependency vulnerability scan
     OSV_ENABLED         : true,                // false → skip step
     OSV_SOFT_FAIL       : true,                // true → pipeline continues on failure
-    OSV_SCRIPT_PATH     : "/app/vaultscan/trigger-osv.sh",
+    OSV_SCRIPT_PATH     : "/app/DockScan/trigger-osv.sh",
 ]
 ```
 
@@ -507,9 +507,9 @@ Runs a Checkov IaC (Infrastructure as Code) security scan over the service sourc
 |-----|---------|-------------|
 | `CHECKOV_ENABLED` | `true` | `false` → skip step |
 | `CHECKOV_SOFT_FAIL` | `true` | `true` → pipeline continues on failure |
-| `CHECKOV_SCRIPT_PATH` | `/app/vaultscan/trigger-checkov.sh` | Trigger script path on remote host |
-| `TRIVY_HOST` | `YOUR_TRIVY_HOST_IP` | Remote scan host |
-| `TRIVY_SSH_USER` | `your-user` | SSH username |
+| `CHECKOV_SCRIPT_PATH` | `/app/DockScan/trigger-checkov.sh` | Trigger script path on remote host |
+| `DOCKERSCAN_HOST` | `YOUR_DOCKERSCAN_HOST_IP` | Remote scan host |
+| `DOCKERSCAN_SSH_USER` | `your-user` | SSH username |
 
 ---
 
@@ -528,9 +528,9 @@ Runs an OSV-Scanner dependency vulnerability scan over the service source files.
 |-----|---------|-------------|
 | `OSV_ENABLED` | `true` | `false` → skip step |
 | `OSV_SOFT_FAIL` | `true` | `true` → pipeline continues on failure |
-| `OSV_SCRIPT_PATH` | `/app/vaultscan/trigger-osv.sh` | Trigger script path on remote host |
-| `TRIVY_HOST` | `YOUR_TRIVY_HOST_IP` | Remote scan host |
-| `TRIVY_SSH_USER` | `your-user` | SSH username |
+| `OSV_SCRIPT_PATH` | `/app/DockScan/trigger-osv.sh` | Trigger script path on remote host |
+| `DOCKERSCAN_HOST` | `YOUR_DOCKERSCAN_HOST_IP` | Remote scan host |
+| `DOCKERSCAN_SSH_USER` | `your-user` | SSH username |
 
 ---
 

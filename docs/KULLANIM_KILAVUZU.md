@@ -594,10 +594,10 @@ def call() {
         DOCKERSCAN_BACKEND_PORT      : '3018',
         CHECKOV_ENABLED     : true,
         CHECKOV_SOFT_FAIL   : true,
-        CHECKOV_SCRIPT_PATH : '/app/vaultscan/trigger-checkov.sh',
+        CHECKOV_SCRIPT_PATH : '/app/DockScan/trigger-checkov.sh',
         OSV_ENABLED         : true,
         OSV_SOFT_FAIL       : true,
-        OSV_SCRIPT_PATH     : '/app/vaultscan/trigger-osv.sh',
+        OSV_SCRIPT_PATH     : '/app/DockScan/trigger-osv.sh',
     ]
 }
 ```
