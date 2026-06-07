@@ -10,12 +10,14 @@ def call(String tag) {
 
     def bar = '═' * 60
     def servicesConfig = readYaml file: 'services.yml'
+    def appName = servicesConfig.app_name ?: error("❌ services.yml içinde 'app_name' tanımlı değil!")
 
     echo """
 ╔${bar}╗
 ║  🔎  OSV-Scanner Bağımlılık Taraması Başlatılıyor
 ╚${bar}╝
   🏷️  Tag      : ${tag}
+  📦 Proje    : ${appName}
   🖥️  Sunucu   : ${sshUser}@${dockerScanHost}
   📂 Script   : ${scriptPath}
   ⚙️  Soft Fail : ${softFail ? 'Evet (hata olsa pipeline devam eder)' : "Hayır (hata pipeline'ı durdurur)"}"""
@@ -47,7 +49,7 @@ def call(String tag) {
                 ssh -o StrictHostKeyChecking=no ${sshUser}@${dockerScanHost} "find /tmp/osv-input/${imageName} -name '*.json' -print0 | xargs -r -0 sed -i '1s/^\\xef\\xbb\\xbf//'"
                 { set +x; } 2>/dev/null; printf '  │  [4/4] Bağımlılık taraması çalıştırılıyor...\\n'
                 { set -x; } 2>/dev/null
-                ssh -o StrictHostKeyChecking=no ${sshUser}@${dockerScanHost} '${scriptPath} --image ${imageName} --tag ${tag}'
+                ssh -o StrictHostKeyChecking=no ${sshUser}@${dockerScanHost} '${scriptPath} --image ${imageName} --tag ${tag} --project ${appName}'
             """
             echo "  └─ ✅ [${imageName}:${tag}] tamamlandı"
         } catch (e) {

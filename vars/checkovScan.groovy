@@ -10,12 +10,14 @@ def call(String tag) {
 
     def bar = '═' * 60
     def servicesConfig = readYaml file: 'services.yml'
+    def appName = servicesConfig.app_name ?: error("❌ services.yml içinde 'app_name' tanımlı değil!")
 
     echo """
 ╔${bar}╗
 ║  🛡️  Checkov IaC Güvenlik Taraması Başlatılıyor
 ╚${bar}╝
   🏷️  Tag      : ${tag}
+  📦 Proje    : ${appName}
   🖥️  Sunucu   : ${sshUser}@${dockerScanHost}
   📂 Script   : ${scriptPath}
   ⚙️  Soft Fail : ${softFail ? 'Evet (hata olsa pipeline devam eder)' : "Hayır (hata pipeline'ı durdurur)"}"""
@@ -44,7 +46,7 @@ def call(String tag) {
                 scp -r -o StrictHostKeyChecking=no \${WORKSPACE}/${servicePath}/. ${sshUser}@${dockerScanHost}:/tmp/checkov-input/${imageName}/
                 { set +x; } 2>/dev/null; printf '  │  [3/3] IaC güvenlik taraması çalıştırılıyor...\\n'
                 { set -x; } 2>/dev/null
-                ssh -o StrictHostKeyChecking=no ${sshUser}@${dockerScanHost} '${scriptPath} --image ${imageName} --tag ${tag}'
+                ssh -o StrictHostKeyChecking=no ${sshUser}@${dockerScanHost} '${scriptPath} --image ${imageName} --tag ${tag} --project ${appName}'
             """
             echo "  └─ ✅ [${imageName}:${tag}] tamamlandı"
         } catch (e) {
