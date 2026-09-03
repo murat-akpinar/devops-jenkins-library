@@ -36,10 +36,19 @@
   çalışmayabilir. Bu, test edilmeden yapılabilecek bir değişiklik değil ve bu makinede
   Groovy/JDK olmadığı için hiçbir şey çalıştırılamıyor.
 
-> ⚠️ **Hiçbir değişiklik çalıştırılarak test EDİLMEDİ.** Doğrulama olarak yapılanlar:
-> ayraç dengesi, Groovy kaçış simülasyonu (üretilen kabuk metni birebir çıkarıldı),
-> shellcheck, ve özel karakterli/çok satırlı değerlerle kabuk davranış testleri.
-> Gerçek pipeline doğrulaması şart — `groovy tools/syntax-check.groovy` ilk adım.
+> ✅ **Gerçek pipeline'da doğrulandı.** vaultscan projesi (3 servis: backend/frontend/nginx)
+> yerel test ortamında (Nexus 192.168.1.134, DockerScan/deploy 192.168.1.131) uçtan uca
+> çalıştırıldı ve deploy **başarıyla tamamlandı**. Kapsanan: buildAndPushService, checkDiff,
+> checkTagOnNexus, collectCredentials, pullService, deployService, checkov/osv/trivy tarama
+> ve quality gate'leri, sendEmailNotification.
+>
+> İlk koşuda **bir regresyon çıktı ve düzeltildi**: eklediğim `docker login` adımı `set -e`
+> altında zorunluydu ve bu ortamda `unauthorized` alıp build'i 0. saniyede düşürdü. Best-effort
+> yapıldı — login olabiliyorsa oluyor, olamıyorsa uyarıyla geçiliyor.
+>
+> Hâlâ **gerçek koşuda denenmeyen** kısımlar: `deployAllServices`, `dockerCleanup`,
+> `sonarQubeAnalysis`/`sonarQubeQualityGate` (test Jenkinsfile'ı bunları çağırmıyor),
+> ve `--wait` bayrağının fiilen eklendiği bir host (compose sürümüne bağlı).
 
 **Uygularken planın yanlış çıktığı yerler:**
 - **Madde 1:** Planda "`\$NEXUS_PASS` diye kaçır" yazıyordu; yetersizmiş — o durumda değeri
@@ -512,7 +521,14 @@ Bunlar **tek commit'te birlikte** yapılmalı, aksi halde aynı satırlar iki ke
 1. **Madde 5 + 12:** DockerScan `/api/checkov` ve `/api/osv` tüm tag'leri mi, yalnızca sonuncuyu mu döndürüyor? Tarama tetikleyici script senkron mu (sonuç ssh dönerken hazır mı)?
 2. **Madde 3:** Checkov/OSV servis dizininin tamamına gerçekten ihtiyaç duyuyor mu, yoksa manifest/IaC dosyaları yeterli mi?
 3. **Madde 6:** Hedef deploy host'larındaki Docker Compose sürümü nedir? ≥ 2.17 ise yetenek tespiti gereksiz, belgelemek yeter.
-4. 🆕 **Madde 22:** Agent'ların Nexus `docker login`'i nasıl kuruluyor — provisioning ile mi, elle mi? Pipeline'a alınması sorun yaratır mı?
+4. ~~**Madde 22:** Agent'ların Nexus `docker login`'i nasıl kuruluyor?~~ **CEVAPLANDI:** kurulu
+   değil. `Nexus_Credentials` kullanıcısı Nexus'un apt/npm proxy repo'larına erişebiliyor ama
+   Docker registry'de (port 8090) yetkili değil — `docker login` `unauthorized` dönüyor, push ise
+   anonim erişimle çalışıyor. Login adımı bu yüzden best-effort yapıldı. Kalıcı çözüm için ya
+   Nexus'ta Docker Bearer Token Realm + docker repo yetkisi verilmeli, ya da ayrı bir
+   `dockerLoginCredentialId` opsiyonu eklenmeli (kullanıcı henüz karar vermedi).
+   NOT: login olmadan `--cache-from` de özel registry'den cache manifest'i çekemiyor, yani
+   madde 10'un kazancı bu ortamda henüz devrede DEĞİL.
 5. 🆕 **Madde 8:** Jenkins agent imajı GNU coreutils mi, BusyBox mu? (`base64 -w0` buna bağlı)
 6. 🆕 **Madde 0b:** Bu kütüphaneyi kaç pipeline kullanıyor ve hepsi aynı anda mı güncellenebilir? Sürüm pinleme gerekli mi?
 7. 🆕 **Madde 28:** `credentials_*.groovy` script console'da en son ne zaman çalıştırıldı, `new hudson.util.Secret(...)` mevcut Jenkins sürümünüzde çalışıyor mu?
