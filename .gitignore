@@ -1,1 +1,4 @@
 .proje/*
+# Gercek degerlerle doldurulan credential bootstrap scriptleri (.example dosyalarindan kopyalanir)
+credentials_prod.groovy
+credentials_test.groovy

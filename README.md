@@ -86,8 +86,8 @@ devops-jenkins-library/
 │   ├── 03-jenkins-plugin-kurulumu.md # Required Jenkins plugins
 │   ├── KULLANIM_KILAVUZU.md          # Detailed usage guide
 │   └── SSS.md                        # Frequently asked questions
-├── credentials_test.groovy            # Bulk load test environment credentials
-├── credentials_prod.groovy            # Bulk load prod environment credentials
+├── credentials_test.groovy.example    # Template: bulk load test environment credentials
+├── credentials_prod.groovy.example    # Template: bulk load prod environment credentials
 └── README.md                          # This file
 ```
 

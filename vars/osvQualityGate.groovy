@@ -65,7 +65,7 @@ def call(String projectName, String grade = 'C') {
         if (gradeOrder[svcGrade] > gradeOrder[worstGrade]) {
             worstGrade = svcGrade
         }
-        echo "  │  ${scan.serviceName.padRight(20)} [${scan.tag}]  zafiyet: ${svcVulns}  → ${svcGrade}"
+        echo "  │  ${(scan.serviceName ?: '?').padRight(20)} [${scan.tag}]  zafiyet: ${svcVulns}  → ${svcGrade}"
     }
 
     echo """  └─ Özet

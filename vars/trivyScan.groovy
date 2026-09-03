@@ -18,18 +18,28 @@ def call(String tag) {
 
     def t0 = System.currentTimeMillis()
     try {
-        def runScan = { nexusUser, nexusPass ->
+        // Kimlik bilgileri bilerek Groovy ile interpolate EDİLMİYOR. Önceki sürümde gerçek
+        // değerler ssh komut satırına gömülüyordu; hem Jenkins agent'ının hem de DockerScan
+        // sunucusunun process listesinde (ps aux) görünüyorlardı. Artık stdin üzerinden
+        // aktarılıyorlar — hiçbir argv'de yer almıyor, özel karakterli şifreler de bozulmuyor.
+        def runScan = { boolean withAuth ->
             servicesConfig.services.each { svc ->
                 def key       = svc.name?.trim()?.toUpperCase()
                 def imageName = svc.image_name ?: svc.name
-                if (env."DO_${key}" == '1') {
-                    echo "  ┌─ [${imageName}:${tag}] taranıyor..."
-                    sh """ssh -o StrictHostKeyChecking=no ${sshUser}@${dockerScanHost} \
-                        'NEXUS_USER="${nexusUser}" NEXUS_PASS="${nexusPass}" ${scriptPath} --image ${imageName} --tag ${tag}'"""
-                    echo "  └─ ✅ [${imageName}:${tag}] tamamlandı"
-                } else {
+                if (env."DO_${key}" != '1') {
                     echo "  ⏭️  [${svc.name}]: build edilmedi → tarama atlanıyor."
+                    return
                 }
+                echo "  ┌─ [${imageName}:${tag}] taranıyor..."
+                if (withAuth) {
+                    sh """
+                        printf '%s\\n%s\\n' "\$NEXUS_USER" "\$NEXUS_PASS" |
+                          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 ${sshUser}@${dockerScanHost} 'read -r U; read -r P; NEXUS_USER="\$U" NEXUS_PASS="\$P" ${scriptPath} --image ${imageName} --tag ${tag}'
+                    """
+                } else {
+                    sh """ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 ${sshUser}@${dockerScanHost} '${scriptPath} --image ${imageName} --tag ${tag}'"""
+                }
+                echo "  └─ ✅ [${imageName}:${tag}] tamamlandı"
             }
         }
 
@@ -39,11 +49,11 @@ def call(String tag) {
                 usernameVariable: 'NEXUS_USER',
                 passwordVariable: 'NEXUS_PASS'
             )]) {
-                runScan(NEXUS_USER, NEXUS_PASS)
+                runScan(true)
             }
         } else {
             echo "  ℹ️  Credential belirtilmedi → anonim tarama"
-            runScan('', '')
+            runScan(false)
         }
 
         def elapsed = ((System.currentTimeMillis() - t0) / 1000).toInteger()

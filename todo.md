@@ -10,6 +10,25 @@
 
 ---
 
+## İlerleme
+
+| Dalga | Maddeler | Durum |
+|-------|----------|-------|
+| 1 | 1, 2, 4 (kısmen), 15 (kısmen), 16, 28 | ✅ Tamamlandı |
+| 0a, 0b | doğrulama altyapısı, sürümleme | ⏳ Bekliyor (0a bu makinede Groovy/JDK olmadığı için kurulamadı) |
+| 2-8 | kalan her şey | ⏳ Bekliyor |
+
+**Dalga 1 notları:**
+- **Madde 1'in çözümü planda yazandan farklı yapıldı.** Planda "`${NEXUS_PASS}` → `\$NEXUS_PASS` yeterli" demiştim — **yetersizmiş**. Kaçırma yapılsaydı bu kez *yerel* kabuk değeri genişletip `ssh` argv'sine koyacaktı, yani şifre Jenkins agent'ının `ps aux` çıktısında yine görünecekti. Doğru çözüm: kimlik bilgilerini **stdin üzerinden** uzak kabuğa aktarmak (`printf ... | ssh 'read -r U; read -r P; ...'`). Böylece ne yerel ne uzak argv'de yer alıyorlar. shellcheck ile ve `'`/`$`/`#` içeren şifreyle davranış testi yapılarak doğrulandı.
+- **Madde 4 kısmen yapıldı:** `runTestsInContainer` zaten madde 1 için açılmıştı, ölü exit-code mantığı da aynı düzenlemede `trap` ile düzeltildi (çakışma haritası gereği).
+- **Madde 15 kısmen yapıldı:** `trivyScan`'in ssh çağrılarına `ConnectTimeout=20` eklendi (aynı satırlar düzenleniyordu). `checkovScan`/`osvScan` hâlâ bekliyor.
+- **Madde 2:** `attachLog` artık varsayılan olarak yalnızca başarısız/iptal build'lerde ekleniyor; `config.attachLog` ile ezilebilir.
+- **Madde 28:** dosyalar `.example` oldu, gerçek adlar `.gitignore`'a girdi, dosya başına kullanım notu eklendi. `new hudson.util.Secret(...)` sorusu **hâlâ açık** — değiştirilmedi.
+
+> ⚠️ **Hiçbiri çalıştırılarak test edilmedi.** Bu makinede Groovy/JDK yok; yalnızca ayraç dengesi, shellcheck ve kabuk davranış testi yapıldı. Gerçek bir pipeline'da doğrulanmalı (madde 0a bu yüzden blocker).
+
+---
+
 ## ⚠️ 1. taslakta yaptığım hatalar
 
 | # | Ne yanlıştı |
@@ -77,7 +96,7 @@ Sürüm belirtilmediği için Jenkins varsayılan branch'i (`main`) çeker. Yani
 
 ## P0 — Güvenlik
 
-### 1. Nexus şifresi shell komut satırına gömülüyor ⚠️ genişletildi
+### 1. Nexus şifresi shell komut satırına gömülüyor ⚠️ genişletildi  ✅ **TAMAMLANDI**
 **Nerede:** [pullService.groovy:49](vars/pullService.groovy#L49), [runTestsInContainer.groovy:44](vars/runTestsInContainer.groovy#L44), [trivyScan.groovy:28](vars/trivyScan.groovy#L28)
 
 ```groovy
@@ -98,7 +117,7 @@ printf '%s' '${NEXUS_PASS}' | docker login ... -u '${NEXUS_USER}' --password-std
 
 ---
 
-### 2. Build log'u e-posta ile tüm takıma gönderiliyor
+### 2. Build log'u e-posta ile tüm takıma gönderiliyor  ✅ **TAMAMLANDI**
 **Nerede:** [sendEmailNotification.groovy:169](vars/sendEmailNotification.groovy#L169) — `attachLog: true`
 
 Tam build log'u eke konuyor ve `emailTeams` üzerinden takım listelerine dağıtılıyor. Log, `set -x` açık olan bölümlerin komut trace'lerini içeriyor — madde 1 düzeltilmeden bu, şifrenin e-posta ekinde arşivlenmesi demek.
@@ -141,7 +160,7 @@ Sızıntı zinciri:
 
 ---
 
-### 28. `credentials_*.groovy` sır doldurulmak üzere tasarlanmış ama gitignore'da değil 🆕
+### 28. `credentials_*.groovy` sır doldurulmak üzere tasarlanmış ama gitignore'da değil 🆕  ✅ **TAMAMLANDI**
 **Nerede:** [credentials_prod.groovy](credentials_prod.groovy), [credentials_test.groovy](credentials_test.groovy), [.gitignore](.gitignore)
 
 İki dosya da temiz şablon — `APP_NAME`, `AÇIKLAMA`, `DEĞER` placeholder'ları, gerçek sır yok. **Mevcut durumda sızıntı yok.**
@@ -351,7 +370,7 @@ Webhook hiç gelmezse adım süresiz asılı kalır — yalnızca job timeout'u 
 
 ---
 
-### 16. Quality gate raporlamasında null alan NPE riski
+### 16. Quality gate raporlamasında null alan NPE riski  ✅ **TAMAMLANDI**
 [checkovQualityGate.groovy:78](vars/checkovQualityGate.groovy#L78), [osvQualityGate.groovy:66](vars/osvQualityGate.groovy#L66) — `scan.serviceName.padRight(20)` null'da NPE. Aynı sınıf hata `find` closure'larında daha önce düzeltilmişti (commit `d8ad451`), bu ikisi atlanmış.
 **Çözüm:** `(scan.serviceName ?: '?').padRight(20)`
 **Efor:** ~5 dk · **Risk:** yok

@@ -86,8 +86,8 @@ devops-jenkins-library/
 │   ├── 03-jenkins-plugin-kurulumu.md # Gerekli Jenkins eklentileri
 │   ├── KULLANIM_KILAVUZU.md          # Detaylı kullanım kılavuzu
 │   └── SSS.md                        # Sık sorulan sorular
-├── credentials_test.groovy            # Test ortamı credential'larını toplu yükler
-├── credentials_prod.groovy            # Prod ortamı credential'larını toplu yükler
+├── credentials_test.groovy.example    # Şablon: test ortamı credential'larını toplu yükler
+├── credentials_prod.groovy.example    # Şablon: prod ortamı credential'larını toplu yükler
 └── README.md                          # İngilizce dokümantasyon
 ```
 
