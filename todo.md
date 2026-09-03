@@ -36,19 +36,28 @@
   çalışmayabilir. Bu, test edilmeden yapılabilecek bir değişiklik değil ve bu makinede
   Groovy/JDK olmadığı için hiçbir şey çalıştırılamıyor.
 
-> ✅ **Gerçek pipeline'da doğrulandı.** vaultscan projesi (3 servis: backend/frontend/nginx)
-> yerel test ortamında (Nexus 192.168.1.134, DockerScan/deploy 192.168.1.131) uçtan uca
-> çalıştırıldı ve deploy **başarıyla tamamlandı**. Kapsanan: buildAndPushService, checkDiff,
-> checkTagOnNexus, collectCredentials, pullService, deployService, checkov/osv/trivy tarama
-> ve quality gate'leri, sendEmailNotification.
+> ✅ **Gerçek pipeline'da uçtan uca doğrulandı.** vaultscan projesi (backend/frontend/nginx)
+> yerel test ortamında (Nexus 192.168.1.134, DockerScan/deploy 192.168.1.131) defalarca
+> koşturuldu. Son durum: checkov A/C/A, OSV A, Trivy C, deploy çalışıyor.
 >
-> İlk koşuda **bir regresyon çıktı ve düzeltildi**: eklediğim `docker login` adımı `set -e`
-> altında zorunluydu ve bu ortamda `unauthorized` alıp build'i 0. saniyede düşürdü. Best-effort
-> yapıldı — login olabiliyorsa oluyor, olamıyorsa uyarıyla geçiliyor.
+> **Testte ortaya çıkan ve düzeltilen regresyonlar** (hepsi bu çalışmada benim eklediklerim):
+> 1. `docker login` `set -e` altında zorunluydu → build 0. saniyede düşüyordu. Best-effort yapıldı.
+> 2. `collectCredentials` `set -x` altında TÜM env değerlerini (JENKINS_SECRET dahil) base64'lü
+>    olarak build log'una döküyordu. `set +x` ile sarmalandı.
+> 3. tar akışında çift `|` → checkov/osv taramaları tamamen patlıyordu (`Syntax error`).
+>    Doğrulamayı üretilen metin yerine elle yazdığım örnekte yaptığım için kaçmıştı.
+> 4. Tarama script'i bulgu bulunca 1 dönüyor; bu "başarısızlık" sayılıyordu. 0/1/128/diğer ayrımı.
+> 5. `scan_path` sonrası nginx'te manifest kalmayınca OSV 128 dönüyordu → "atlandı" olarak ele alındı.
+> 6. `GLOBAL_SSH_USER`, `AGENT_WORKDIR`, `HOSTNAME`, `TZ` credential sanılıp deploy `.env`'ine
+>    yazılıyordu. `TZ` özellikle projenin kendi `.env`'ini eziyordu. Prefix bazlı denylist.
 >
-> Hâlâ **gerçek koşuda denenmeyen** kısımlar: `deployAllServices`, `dockerCleanup`,
-> `sonarQubeAnalysis`/`sonarQubeQualityGate` (test Jenkinsfile'ı bunları çağırmıyor),
-> ve `--wait` bayrağının fiilen eklendiği bir host (compose sürümüne bağlı).
+> **Testte ortaya çıkan, kütüphane dışı bulgular:** frontend'de 7 gerçek npm zafiyeti
+> (`npm audit fix` ile giderildi), nginx'in tüm repoyu tarayıp frontend'i çift sayması
+> (`scan_path` eklendi), dashboard'da bayat kayıtların gate'i kilitlemesi (dedup + elle temizlik).
+>
+> **Hâlâ gerçek koşuda görülmeyen:** `deployAllServices`'in compose aşaması ve `dockerCleanup`
+> (log her seferinde Deploy'da kesildi), `sonarQubeAnalysis`/`sonarQubeQualityGate`
+> (test Jenkinsfile'ı çağırmıyor).
 
 **Uygularken planın yanlış çıktığı yerler:**
 - **Madde 1:** Planda "`\$NEXUS_PASS` diye kaçır" yazıyordu; yetersizmiş — o durumda değeri
