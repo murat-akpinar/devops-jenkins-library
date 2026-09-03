@@ -1,5 +1,6 @@
 def call(String tag) {
     def CFG         = globalConfig()
+    def SSH_OPTS = sshOptions()
     def enabled     = CFG.OSV_ENABLED   != false
     def softFail    = CFG.OSV_SOFT_FAIL == true
     def dockerScanHost  = CFG.DOCKERSCAN_HOST
@@ -40,16 +41,16 @@ def call(String tag) {
             sh """
                 { set +x; } 2>/dev/null; printf '  │  [1/4] Uzak dizin hazırlanıyor...\\n'
                 { set -x; } 2>/dev/null
-                ssh -o StrictHostKeyChecking=no ${sshUser}@${dockerScanHost} 'rm -rf /tmp/osv-input/${imageName} && mkdir -p /tmp/osv-input/${imageName}'
+                ssh ${SSH_OPTS} -o StrictHostKeyChecking=no ${sshUser}@${dockerScanHost} 'rm -rf /tmp/osv-input/${imageName} && mkdir -p /tmp/osv-input/${imageName}'
                 { set +x; } 2>/dev/null; printf '  │  [2/4] Kaynak dosyalar yükleniyor...\\n  │  ${servicePath}/ ──▶ ${sshUser}@${dockerScanHost}:/tmp/osv-input/${imageName}/\\n'
                 { set -x; } 2>/dev/null
-                scp -r -o StrictHostKeyChecking=no \${WORKSPACE}/${servicePath}/. ${sshUser}@${dockerScanHost}:/tmp/osv-input/${imageName}/
+                scp -r ${SSH_OPTS} -o StrictHostKeyChecking=no \${WORKSPACE}/${servicePath}/. ${sshUser}@${dockerScanHost}:/tmp/osv-input/${imageName}/
                 { set +x; } 2>/dev/null; printf '  │  [3/4] JSON encoding düzeltiliyor (BOM temizleniyor)...\\n'
                 { set -x; } 2>/dev/null
-                ssh -o StrictHostKeyChecking=no ${sshUser}@${dockerScanHost} "find /tmp/osv-input/${imageName} -name '*.json' -print0 | xargs -r -0 sed -i '1s/^\\xef\\xbb\\xbf//'"
+                ssh ${SSH_OPTS} -o StrictHostKeyChecking=no ${sshUser}@${dockerScanHost} "find /tmp/osv-input/${imageName} -name '*.json' -print0 | xargs -r -0 sed -i '1s/^\\xef\\xbb\\xbf//'"
                 { set +x; } 2>/dev/null; printf '  │  [4/4] Bağımlılık taraması çalıştırılıyor...\\n'
                 { set -x; } 2>/dev/null
-                ssh -o StrictHostKeyChecking=no ${sshUser}@${dockerScanHost} '${scriptPath} --image ${imageName} --tag ${tag} --project ${appName}'
+                ssh ${SSH_OPTS} -o StrictHostKeyChecking=no ${sshUser}@${dockerScanHost} '${scriptPath} --image ${imageName} --tag ${tag} --project ${appName}'
             """
             echo "  └─ ✅ [${imageName}:${tag}] tamamlandı"
         } catch (e) {

@@ -1,5 +1,6 @@
 def call(Map config) {
     def serviceName       = config.serviceName
+    def SSH_OPTS = sshOptions()
     def imageName         = config.imageName ?: serviceName
     def version           = config.version
     def deployIp          = config.deployIp
@@ -26,13 +27,13 @@ def call(Map config) {
     try {
         def pullCmds = """
             { set +x; } 2>/dev/null; printf '  ┌─[1/4] Eski imaj temizleniyor...\n'; { set -x; } 2>/dev/null
-            ssh -p ${sshPort} -o ConnectTimeout=20 ${sshUser}@${deployIp} "docker rmi ${imageName}:${version} || true"
+            ssh -p ${sshPort} ${SSH_OPTS} ${sshUser}@${deployIp} "docker rmi ${imageName}:${version} || true"
             { set +x; } 2>/dev/null; printf '  ├─[2/4] İmaj çekiliyor...\n'; { set -x; } 2>/dev/null
-            ssh -p ${sshPort} -o ConnectTimeout=20 ${sshUser}@${deployIp} "docker pull ${nexusImageName}"
+            ssh -p ${sshPort} ${SSH_OPTS} ${sshUser}@${deployIp} "docker pull ${nexusImageName}"
             { set +x; } 2>/dev/null; printf '  ├─[3/4] İmaj etiketleniyor...\n'; { set -x; } 2>/dev/null
-            ssh -p ${sshPort} -o ConnectTimeout=20 ${sshUser}@${deployIp} "docker tag ${nexusImageName} ${imageName}:${version}"
+            ssh -p ${sshPort} ${SSH_OPTS} ${sshUser}@${deployIp} "docker tag ${nexusImageName} ${imageName}:${version}"
             { set +x; } 2>/dev/null; printf '  └─[4/4] Nexus etiketi kaldırılıyor...\n'; { set -x; } 2>/dev/null
-            ssh -p ${sshPort} -o ConnectTimeout=20 ${sshUser}@${deployIp} "docker rmi ${nexusImageName} || true"
+            ssh -p ${sshPort} ${SSH_OPTS} ${sshUser}@${deployIp} "docker rmi ${nexusImageName} || true"
         """
 
         if (nexusCredentialId?.trim()) {
@@ -43,7 +44,8 @@ def call(Map config) {
             withEnv([
                 "PS_SSH_TARGET=${sshUser}@${deployIp}",
                 "PS_SSH_PORT=${sshPort}",
-                "PS_REGISTRY=${nexusRegistry}"
+                "PS_REGISTRY=${nexusRegistry}",
+                "PS_SSH_OPTS=${SSH_OPTS}"
             ]) {
                 withCredentials([usernamePassword(
                     credentialsId: nexusCredentialId,
@@ -52,12 +54,12 @@ def call(Map config) {
                 )]) {
                     sh '''
                         set -e
-                        if ssh -p "$PS_SSH_PORT" -o ConnectTimeout=20 "$PS_SSH_TARGET" "grep -q '$PS_REGISTRY' ~/.docker/config.json 2>/dev/null"; then
+                        if ssh -p "$PS_SSH_PORT" $PS_SSH_OPTS "$PS_SSH_TARGET" "grep -q '$PS_REGISTRY' ~/.docker/config.json 2>/dev/null"; then
                             echo "  ✅ Docker login mevcut: $PS_REGISTRY"
                         else
                             echo "  🔐 Docker login yapılıyor: $PS_REGISTRY"
                             printf '%s\\n%s\\n%s\\n' "$PS_REGISTRY" "$NEXUS_USER" "$NEXUS_PASS" |
-                              ssh -p "$PS_SSH_PORT" -o ConnectTimeout=20 "$PS_SSH_TARGET" 'read -r R; read -r U; read -r P; printf "%s" "$P" | docker login "$R" -u "$U" --password-stdin'
+                              ssh -p "$PS_SSH_PORT" $PS_SSH_OPTS "$PS_SSH_TARGET" 'read -r R; read -r U; read -r P; printf "%s" "$P" | docker login "$R" -u "$U" --password-stdin'
                         fi
                     '''
                     sh pullCmds

@@ -1,5 +1,6 @@
 def call(String tag) {
     def CFG        = globalConfig()
+    def SSH_OPTS = sshOptions()
     def dockerScanHost  = CFG.DOCKERSCAN_HOST
     def sshUser    = CFG.DOCKERSCAN_SSH_USER
     def scriptPath = CFG.DOCKERSCAN_SCRIPT_PATH
@@ -34,10 +35,10 @@ def call(String tag) {
                 if (withAuth) {
                     sh """
                         printf '%s\\n%s\\n' "\$NEXUS_USER" "\$NEXUS_PASS" |
-                          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 ${sshUser}@${dockerScanHost} 'read -r U; read -r P; NEXUS_USER="\$U" NEXUS_PASS="\$P" ${scriptPath} --image ${imageName} --tag ${tag}'
+                          ssh ${SSH_OPTS} -o StrictHostKeyChecking=no ${sshUser}@${dockerScanHost} 'read -r U; read -r P; NEXUS_USER="\$U" NEXUS_PASS="\$P" ${scriptPath} --image ${imageName} --tag ${tag}'
                     """
                 } else {
-                    sh """ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 ${sshUser}@${dockerScanHost} '${scriptPath} --image ${imageName} --tag ${tag}'"""
+                    sh """ssh ${SSH_OPTS} -o StrictHostKeyChecking=no ${sshUser}@${dockerScanHost} '${scriptPath} --image ${imageName} --tag ${tag}'"""
                 }
                 echo "  └─ ✅ [${imageName}:${tag}] tamamlandı"
             }

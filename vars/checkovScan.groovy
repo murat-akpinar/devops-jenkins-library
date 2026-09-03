@@ -1,5 +1,6 @@
 def call(String tag) {
     def CFG         = globalConfig()
+    def SSH_OPTS = sshOptions()
     def enabled     = CFG.CHECKOV_ENABLED   != false
     def softFail    = CFG.CHECKOV_SOFT_FAIL == true
     def dockerScanHost  = CFG.DOCKERSCAN_HOST
@@ -40,13 +41,13 @@ def call(String tag) {
             sh """
                 { set +x; } 2>/dev/null; printf '  │  [1/3] Uzak dizin hazırlanıyor...\\n'
                 { set -x; } 2>/dev/null
-                ssh -o StrictHostKeyChecking=no ${sshUser}@${dockerScanHost} 'rm -rf /tmp/checkov-input/${imageName} && mkdir -p /tmp/checkov-input/${imageName}'
+                ssh ${SSH_OPTS} -o StrictHostKeyChecking=no ${sshUser}@${dockerScanHost} 'rm -rf /tmp/checkov-input/${imageName} && mkdir -p /tmp/checkov-input/${imageName}'
                 { set +x; } 2>/dev/null; printf '  │  [2/3] Kaynak dosyalar yükleniyor...\\n  │  ${servicePath}/ ──▶ ${sshUser}@${dockerScanHost}:/tmp/checkov-input/${imageName}/\\n'
                 { set -x; } 2>/dev/null
-                scp -r -o StrictHostKeyChecking=no \${WORKSPACE}/${servicePath}/. ${sshUser}@${dockerScanHost}:/tmp/checkov-input/${imageName}/
+                scp -r ${SSH_OPTS} -o StrictHostKeyChecking=no \${WORKSPACE}/${servicePath}/. ${sshUser}@${dockerScanHost}:/tmp/checkov-input/${imageName}/
                 { set +x; } 2>/dev/null; printf '  │  [3/3] IaC güvenlik taraması çalıştırılıyor...\\n'
                 { set -x; } 2>/dev/null
-                ssh -o StrictHostKeyChecking=no ${sshUser}@${dockerScanHost} '${scriptPath} --image ${imageName} --tag ${tag} --project ${appName}'
+                ssh ${SSH_OPTS} -o StrictHostKeyChecking=no ${sshUser}@${dockerScanHost} '${scriptPath} --image ${imageName} --tag ${tag} --project ${appName}'
             """
             echo "  └─ ✅ [${imageName}:${tag}] tamamlandı"
         } catch (e) {
