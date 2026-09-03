@@ -271,9 +271,13 @@ sonarQubeAnalysis(env.SONAR_SERVER, [dotnetRoot: '/opt/dotnet'])
 
 ---
 
-### `sonarQubeQualityGate()`
+### `sonarQubeQualityGate(config)`
 
 Checks the SonarQube Quality Gate result.
+
+**Parameters (Map, optional):**
+- `timeoutMinutes` — upper bound while waiting for the result (default: `10`). If the webhook
+  never arrives the step now fails instead of hanging indefinitely and holding an executor.
 
 ```groovy
 sonarQubeQualityGate()
@@ -310,6 +314,12 @@ Checks for git diff at the specified path(s).
 - `currCommit` (String): Current commit hash
 
 **Return value:** `1` (changes detected) or `0` (no changes)
+
+**`options.failOpen`** — what to return when there is no baseline (no previous successful commit):
+`false` (default) → `0`, "no changes"; `true` → `1`, "unknown, build it". The default is kept for
+backward compatibility but is safe in the wrong direction: on a first build nothing is deployed.
+`Example/Jenkins_example.groovy` compensates at the call site with its `hasBaseline` check; if you
+call the function directly, pass `[failOpen: true]`.
 
 **Submodule support:** if a path is a git submodule (checked out with `--remote`, for example), the superproject's gitlink pointer may never be bumped even though the submodule itself has new commits. For such paths the submodule's current `HEAD` is compared against the SHA last pinned in the superproject, instead of diffing the superproject, so changes are detected without a pointer bump.
 
@@ -448,6 +458,8 @@ Deploys a service to the target server.
 | `runCompose` | ❌ | Run `docker compose up -d` (default: `true`) |
 | `composeWaitTimeout` | ❌ | `--wait-timeout` for `docker compose up --wait`, in seconds (default: `180`) |
 | `pruneImages` | ❌ | Run `docker image prune -a -f` on the deploy host after compose (default: `false`) |
+| `composeWait` | ❌ | Use `up -d --wait` (default: `true`). Set `false` for projects with a migration/init container that runs and exits — `--wait` fails on such a container. |
+| `pruneDangling` | ❌ | Prune dangling images after compose (default: `true`) |
 
 **Compose behaviour:** `docker compose down` is no longer run, because it caused unnecessary downtime and `up -d` already recreates only the containers whose config or image changed. Instead of a fixed `sleep`, `up -d --wait` waits until containers are healthy (or running, when no healthcheck is defined) and fails the step otherwise. After compose, `docker image prune -f` removes only images left dangling by the new deploy; images still bound to another tag are untouched. Copying the compose file and running it are tracked separately, so when several services share a host the file is copied by the first service while only the last one runs `up`.
 
@@ -522,6 +534,7 @@ Only dangling images and the build cache are pruned; tagged images are left alon
 | Parameter | Description |
 |-----------|-------------|
 | `keepVersion` | Tag to keep (default: `env.VERSION`) |
+| `pruneBuilder` | Also prune the BuildKit cache (default: `false`). Enabling it destroys the build cache and cancels out the `--cache-from` win in `buildAndPushService`. |
 | `servicesFile` | services.yml path (default: `SERVICES_FILE` env or `services.yml`) |
 
 ```groovy
@@ -846,3 +859,32 @@ For detailed troubleshooting: **[docs/FAQ.md](docs/FAQ.md)**
 ## License
 
 This project is for corporate use.
+
+---
+
+## Behaviour Changes
+
+Bu sürümde varsayılan davranışı etkileyen değişiklikler. Kütüphaneyi sürüm etiketiyle
+sabitlemek için: `@Library('devops-jenkins-library@v2.0') _`
+
+| Değişiklik | Etki | Geri alma |
+|-----------|------|-----------|
+| `docker compose down` artık çalıştırılmıyor; yerine `up -d --wait` | Deploy kesintisi azalır; container'lar sağlıklı olana kadar beklenir | `composeWait: false` |
+| `--wait` / `--wait-timeout` yalnızca host'un Compose sürümü destekliyorsa eklenir (≥ 2.1.1 / ≥ 2.17) | Eski host'larda sessizce düz `up -d`'ye dönülür | — (otomatik) |
+| Compose sonrası deploy host'unda `docker image prune -f` | Yeni deploy'un dangling bıraktığı imajlar silinir; host geneli çalışır | `pruneDangling: false` |
+| `buildAndPushService` artık Nexus'a `docker login` yapıyor | Agent'ın pipeline dışında login edilmiş olması gerekmiyor | — |
+| Build'e `BUILDKIT_INLINE_CACHE=1` eklendi | `--cache-from` gerçekten çalışıyor (önceden sessizce boşa gidiyordu) | — |
+| `dockerCleanup` artık BuildKit cache'ini **silmiyor** | Sonraki build'ler daha hızlı | `pruneBuilder: true` |
+| `collectCredentials` adında rakam geçen değişkenleri de topluyor | `AWS_S3_SECRET`, `DB2_PASSWORD` gibi credential'lar önceden **sessizce atlanıyordu**; artık `.env`'e yazılıyorlar | — |
+| `sonarQubeQualityGate` 10 dakikalık timeout ile çalışıyor | Webhook gelmezse adım süresiz asılı kalmıyor | `timeoutMinutes: N` |
+| checkov/osv quality gate yalnızca bu build'in tag'ini değerlendiriyor | Eski bir tag'in kötü notu sonraki build'leri fail ettirmiyor | — |
+| Checkov/OSV taramasına `.env`, `node_modules`, `.git` vb. **gönderilmiyor** | Sırlar tarama sunucusunda kalmıyor, yükleme hızlanıyor | — |
+| Tüm `ssh`/`scp` çağrıları bağlantı çoğullama kullanıyor | Deploy başına ~100 SSH handshake yerine host başına tek oturum | `sshOptions([multiplex: false])` |
+
+**Güvenlik düzeltmesi:** `pullService`, `runTestsInContainer` ve `trivyScan` Nexus şifresini
+shell komut satırına gömüyordu; değer agent'ta (ve DockerScan sunucusunda) `ps aux` ile
+okunabiliyordu. Artık stdin üzerinden aktarılıyor. Şifresinde tek tırnak bulunan kurulumlar
+önceden çalışmıyordu, artık çalışıyor.
+
+**Doğrulama:** `groovy tools/syntax-check.groovy` ile `vars/` sözdizimi denetlenir; her
+push/PR'da GitHub Actions üzerinden otomatik çalışır.

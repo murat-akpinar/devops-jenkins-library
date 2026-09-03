@@ -399,6 +399,14 @@ services:
 
 ## Deploy Process
 
+> **Note:** The questions below describe the older flow that calls `deployService()` per
+> service; the mechanism still applies. For new pipelines use **`deployAllServices()`**
+> instead of calling `pullService`/`deployService` one by one: it pre-pulls the images,
+> deploys only the services that changed, runs `docker compose up` exactly once per host,
+> and passes `credentialsMap` to **every** deployed service (hand-written loops passed it
+> only to the first service, so credential updates were silently skipped whenever a later
+> service was the one that changed). See [README.md](../README.md).
+
 ### Q18: In which file does deployService() write credentials to .env?
 
 **Answer:** In `vars/deployService.groovy`.
@@ -476,10 +484,12 @@ JENKINS_SECRET = credentials('secret')  // Excluded
 MY_SECRET = credentials('secret')  // Written
 
 // In the Deploy stage
-def credentialsMap = collectCredentials()
-deployService([
-    // ...
-    extraEnvVars: credentialsMap
+deployAllServices([
+    appName        : env.APP,
+    version        : env.VERSION,
+    nexusUrl       : env.NEXUS_URL,
+    registryPath   : env.REGISTRY_PATH,
+    credentialsMap : collectCredentials()
 ])
 ```
 

@@ -14,18 +14,43 @@
 
 | Dalga | Maddeler | Durum |
 |-------|----------|-------|
-| 1 | 1, 2, 4 (kısmen), 15 (kısmen), 16, 28 | ✅ Tamamlandı |
-| 0a, 0b | doğrulama altyapısı, sürümleme | ⏳ Bekliyor (0a bu makinede Groovy/JDK olmadığı için kurulamadı) |
-| 2-8 | kalan her şey | ⏳ Bekliyor |
+| 0a doğrulama altyapısı | tools/syntax-check.groovy + GitHub Actions CI | ✅ |
+| 1 güvenlik | 1, 2, 4, 16, 28 | ✅ |
+| 2 build cache | 10, 22, 23 | ✅ |
+| 3 deploy davranışı | 6, 7, 11, 12, 17 | ✅ |
+| 4 SSH | 9, 15 | ✅ |
+| 5 env hijyeni | 8, 21, 25, 27 | ✅ |
+| 6 dayanıklılık | 14, 18, 19, 20, 24, 26, 29 | ✅ |
+| 7 tarama | 3, 5 | ✅ |
+| 0b sürümleme | tag + @Library pinleme | ⏳ Karar bekliyor |
+| 8 paralel deploy | 13 | ⏳ Yapılmadı (bilinçli) |
 
-**Dalga 1 notları:**
-- **Madde 1'in çözümü planda yazandan farklı yapıldı.** Planda "`${NEXUS_PASS}` → `\$NEXUS_PASS` yeterli" demiştim — **yetersizmiş**. Kaçırma yapılsaydı bu kez *yerel* kabuk değeri genişletip `ssh` argv'sine koyacaktı, yani şifre Jenkins agent'ının `ps aux` çıktısında yine görünecekti. Doğru çözüm: kimlik bilgilerini **stdin üzerinden** uzak kabuğa aktarmak (`printf ... | ssh 'read -r U; read -r P; ...'`). Böylece ne yerel ne uzak argv'de yer alıyorlar. shellcheck ile ve `'`/`$`/`#` içeren şifreyle davranış testi yapılarak doğrulandı.
-- **Madde 4 kısmen yapıldı:** `runTestsInContainer` zaten madde 1 için açılmıştı, ölü exit-code mantığı da aynı düzenlemede `trap` ile düzeltildi (çakışma haritası gereği).
-- **Madde 15 kısmen yapıldı:** `trivyScan`'in ssh çağrılarına `ConnectTimeout=20` eklendi (aynı satırlar düzenleniyordu). `checkovScan`/`osvScan` hâlâ bekliyor.
-- **Madde 2:** `attachLog` artık varsayılan olarak yalnızca başarısız/iptal build'lerde ekleniyor; `config.attachLog` ile ezilebilir.
-- **Madde 28:** dosyalar `.example` oldu, gerçek adlar `.gitignore`'a girdi, dosya başına kullanım notu eklendi. `new hudson.util.Secret(...)` sorusu **hâlâ açık** — değiştirilmedi.
+**29/31 madde tamamlandı.** Yapılmayan ikisi:
 
-> ⚠️ **Hiçbiri çalıştırılarak test edilmedi.** Bu makinede Groovy/JDK yok; yalnızca ayraç dengesi, shellcheck ve kabuk davranış testi yapıldı. Gerçek bir pipeline'da doğrulanmalı (madde 0a bu yüzden blocker).
+- **Madde 0b (sürümleme):** Sürüm etiketi atmak senin kararın — hangi noktanın `v2.0`
+  olacağını ve tüketicilerin ne zaman geçeceğini ben belirleyemem. README'lere
+  `@Library('devops-jenkins-library@v2.0') _` kullanımı ve davranış değişikliği tablosu
+  eklendi; geriye yalnızca `git tag` kalıyor.
+- **Madde 13 (paralel deploy):** Bilinçli olarak yapılmadı. `@Field` compose key set'leri
+  thread-safe değil; eşzamanlı erişimde `docker compose up` birden fazla kez ya da hiç
+  çalışmayabilir. Bu, test edilmeden yapılabilecek bir değişiklik değil ve bu makinede
+  Groovy/JDK olmadığı için hiçbir şey çalıştırılamıyor.
+
+> ⚠️ **Hiçbir değişiklik çalıştırılarak test EDİLMEDİ.** Doğrulama olarak yapılanlar:
+> ayraç dengesi, Groovy kaçış simülasyonu (üretilen kabuk metni birebir çıkarıldı),
+> shellcheck, ve özel karakterli/çok satırlı değerlerle kabuk davranış testleri.
+> Gerçek pipeline doğrulaması şart — `groovy tools/syntax-check.groovy` ilk adım.
+
+**Uygularken planın yanlış çıktığı yerler:**
+- **Madde 1:** Planda "`\$NEXUS_PASS` diye kaçır" yazıyordu; yetersizmiş — o durumda değeri
+  yerel kabuk genişletip `ssh` argv'sine koyuyor, şifre yine `ps aux`'ta görünüyordu.
+  Kimlik bilgileri stdin'e taşındı.
+- **Madde 9:** Uygulama sırasında iki hata yakalandı — helper `call()` dışında olduğu için
+  `SSH_OPTS` kapsamda değildi, ve 6 tek-tırnaklı `sh` çağrısında `${SSH_OPTS}` sessizce
+  boşa düşüyordu (bu çağrılar önceden `ConnectTimeout` taşıyordu).
+- **Madde 8:** Yeni bir hata bulundu — eski anahtar deseni `^[A-Z_]+=` adında rakam geçen
+  değişkenleri (`AWS_S3_SECRET`) sessizce atlıyordu; o credential'lar `.env`'e hiç
+  yazılmıyordu. Desen düzeltildi, bu bir davranış değişikliği.
 
 ---
 
@@ -65,7 +90,7 @@ Bu envanter **eksiksiz değil.** Kod kapsamı yüksek, doküman kapsamı düşü
 
 ## 🆕 P0 — Önkoşul (bunlar olmadan diğerlerine başlanmamalı)
 
-### 0a. Hiçbir doğrulama mekanizması yok 🆕
+### 0a. Hiçbir doğrulama mekanizması yok 🆕  ✅ **TAMAMLANDI**
 **Nerede:** repo genelinde — test yok, CI yok, syntax kontrolü yok.
 
 Bu plan 18 dosyada 20+ değişiklik öneriyor ve tek doğrulama yolu **gerçek bir pipeline çalıştırmak**. Groovy'de bir yazım hatası, ancak o fonksiyona ulaşan build'de patlar — yani Deploy stage'indeki bir hata, 10 dakikalık build'in sonunda ortaya çıkar. Planın en büyük riski maddelerin kendisi değil, doğrulanamıyor olmaları.
@@ -127,7 +152,7 @@ Tam build log'u eke konuyor ve `emailTeams` üzerinden takım listelerine dağı
 
 ---
 
-### 3. Tarama host'una servis dizininin tamamı kopyalanıyor
+### 3. Tarama host'una servis dizininin tamamı kopyalanıyor  ✅ **TAMAMLANDI**
 **Nerede:** [checkovScan.groovy:46](vars/checkovScan.groovy#L46), [osvScan.groovy:46](vars/osvScan.groovy#L46)
 
 ```
@@ -141,7 +166,7 @@ Filtre yok: `node_modules/`, `.git/`, build çıktıları ve **`.env` dosyaları
 
 ---
 
-### 21. `deployService` global env'i kirletiyor, `collectCredentials` bunları credential sanıyor 🆕
+### 21. `deployService` global env'i kirletiyor, `collectCredentials` bunları credential sanıyor 🆕  ✅ **TAMAMLANDI**
 **Nerede:** [deployService.groovy](vars/deployService.groovy) — 14 ayrı yazım (satır 19, 83, 89, 95, 112, 118-120, 185-187, 202, 235-237)
 
 `deployService`, shell'e değer geçirmek için global `env`'e yazıyor: `DEPLOY_SSH_PORT`, `DEPLOY_SSH_USER_CHECK`, `DEPLOY_IP_CHECK`, `DEPLOY_DEST_PATH_CHECK`, `DEPLOY_SRC_*`, `DEPLOY_APP_NAME_ENV`, `DEPLOY_ENV_FILE_GIT` …
@@ -177,7 +202,7 @@ Sorun tasarımda: bu dosyaların amacı kullanıcı tarafından **gerçek sırla
 
 ## P1 — Doğruluk
 
-### 4. `runTestsInContainer` exit-code mantığı ölü kod
+### 4. `runTestsInContainer` exit-code mantığı ölü kod  ✅ **TAMAMLANDI**
 **Nerede:** [runTestsInContainer.groovy:19-29](vars/runTestsInContainer.groovy#L19)
 
 Script `set -e` ile başlıyor. `docker run` başarısız olduğunda shell **o satırda** çıkıyor; `TEST_EXIT=$?` hiç çalışmıyor. Yani `TEST_EXIT` okunduğunda daima `0`; test başarısızsa temizlik (`docker rmi`) yapılmıyor ve özel hata mesajı basılmıyor. Adım yine de fail ediyor — *yanlış yeşil değil*, ama temizlik ve teşhis kayboluyor.
@@ -187,7 +212,7 @@ Script `set -e` ile başlıyor. `docker run` başarısız olduğunda shell **o s
 
 ---
 
-### 5. Checkov/OSV quality gate geçmiş build'lerin sonuçlarını da hesaba katıyor
+### 5. Checkov/OSV quality gate geçmiş build'lerin sonuçlarını da hesaba katıyor  ✅ **TAMAMLANDI**
 **Nerede:** [checkovQualityGate.groovy:66](vars/checkovQualityGate.groovy#L66), [osvQualityGate.groovy:57](vars/osvQualityGate.groovy#L57)
 
 API `?project=X` ile sorgulanıyor, dönen dizi `tag` alanı taşıyor ama **filtrelenmiyor**. `worstGrade` projenin tüm geçmiş taramaları üzerinden hesaplanıyor — bir kez kötü not almış eski tag sonraki tüm build'leri süresiz fail ettirir.
@@ -199,7 +224,7 @@ API `?project=X` ile sorgulanıyor, dönen dizi `tag` alanı taşıyor ama **fil
 
 ---
 
-### 6. `--wait` eski Docker Compose'da deploy'u kırar
+### 6. `--wait` eski Docker Compose'da deploy'u kırar  ✅ **TAMAMLANDI**
 **Nerede:** [deployService.groovy:336](vars/deployService.groovy#L336) — bu oturumda eklendi
 
 `--wait` Compose ≥ 2.1.1, `--wait-timeout` ≥ 2.17 istiyor. Daha eski compose'lu host'ta "unknown flag" ile **her deploy** patlar. Repoda compose sürüm önkoşulu yazmıyor.
@@ -209,14 +234,14 @@ API `?project=X` ile sorgulanıyor, dönen dizi `tag` alanı taşıyor ama **fil
 
 ---
 
-### 7. `--wait`, çıkan container'larda fail eder
+### 7. `--wait`, çıkan container'larda fail eder  ✅ **TAMAMLANDI**
 Migration/init gibi `exit 0` veren container'lar `up -d --wait`'i hata döndürtür. Yetenek tespiti bunu çözemez.
 **Çözüm:** `composeWait: false` knob'u (varsayılan `true`), README'de belgelenir.
 **Efor:** ~15 dk · **Risk:** yok
 
 ---
 
-### 22. Agent'ta Nexus `docker login` belgelenmemiş bir önkoşul 🆕
+### 22. Agent'ta Nexus `docker login` belgelenmemiş bir önkoşul 🆕  ✅ **TAMAMLANDI**
 **Nerede:** [buildAndPushService.groovy](vars/buildAndPushService.groovy) — `docker login` **yalnızca Harbor için** var (satır 109), Nexus için hiç yok.
 
 `docker push ${versionImage}` çalışıyor ama öncesinde Nexus'a login yapılmıyor. Yani agent'ın Nexus oturumu pipeline dışında (elle ya da provisioning ile) kurulmuş olmak zorunda. Hiçbir yerde yazmıyor; yeni bir agent eklendiğinde push "unauthorized" ile patlar ve sebebi belirsiz görünür.
@@ -230,7 +255,7 @@ Aynı önkoşul **madde 10'u da etkiliyor**: `--cache-from` özel registry'den c
 
 ## P2 — Performans
 
-### 8. `collectCredentials` her env değişkeni için ayrı shell açıyor ⚠️ çözüm düzeltildi
+### 8. `collectCredentials` her env değişkeni için ayrı shell açıyor ⚠️ çözüm düzeltildi  ✅ **TAMAMLANDI**
 **Nerede:** [collectCredentials.groovy:33](vars/collectCredentials.groovy#L33)
 
 `printenv ${key}` döngü içinde — **değişken başına bir `sh` adımı**. Jenkins'te her `sh` bir Durable Task: wrapper yazılıyor, process başlatılıyor, çıktı poll ediliyor. 40-60 değişken → 40-60 ayrı adım, build başına kolayca dakikalar.
@@ -256,7 +281,7 @@ Groovy tarafında her satır `\t`'den bölünüp değer decode edilir. 60 adım 
 
 ---
 
-### 27. `extraFiles` başına 4+ gereksiz `sh` çağrısı 🆕
+### 27. `extraFiles` başına 4+ gereksiz `sh` çağrısı 🆕  ✅ **TAMAMLANDI**
 **Nerede:** [deployService.groovy:83-113](vars/deployService.groovy#L83)
 
 Her `extraFiles` girdisi için ayrı `sh` adımları çalışıyor — hepsi kabuk gerektirmeyen işler için:
@@ -278,7 +303,7 @@ Madde 8 ile aynı sınıf sorun: Jenkins'te her `sh` bir Durable Task. 3 `extraF
 
 ---
 
-### 9. SSH bağlantı çoğullama (multiplexing) yok
+### 9. SSH bağlantı çoğullama (multiplexing) yok  ✅ **TAMAMLANDI**
 **Nerede:** `deployService` (17 `ssh` + 4 `scp`), `pullService` (5 `ssh`), `runTestsInContainer`, `checkovScan`, `osvScan`, `trivyScan`
 
 Her çağrı ayrı TCP + kripto handshake. 2 servis × 2 host'luk mütevazı bir deploy ≈ **100 handshake**.
@@ -292,7 +317,7 @@ Her çağrı ayrı TCP + kripto handshake. 2 servis × 2 host'luk mütevazı bir
 
 ---
 
-### 10. `--cache-from` şu anda hiçbir işe yaramıyor
+### 10. `--cache-from` şu anda hiçbir işe yaramıyor  ✅ **TAMAMLANDI**
 **Nerede:** [buildAndPushService.groovy:72-73](vars/buildAndPushService.groovy#L72)
 
 `DOCKER_BUILDKIT=1` ile build ediliyor ve `--cache-from ...:latest` veriliyor — ama `BUILDKIT_INLINE_CACHE=1` geçilmediği için push edilen imajlarda cache metadata'sı **yok**. Bayrak her build'de sessizce boşa gidiyor.
@@ -308,7 +333,7 @@ Her çağrı ayrı TCP + kripto handshake. 2 servis × 2 host'luk mütevazı bir
 
 ---
 
-### 23. `dockerCleanup`, build cache'ini her seferinde yok ediyor 🆕
+### 23. `dockerCleanup`, build cache'ini her seferinde yok ediyor 🆕  ✅ **TAMAMLANDI**
 **Nerede:** [dockerCleanup.groovy:20](vars/dockerCleanup.groovy#L20) — `docker builder prune -f`
 
 Bu oturumda kaynak repodan aynen taşındı. `docker image prune -f` (dangling imajlar) makul, ama `docker builder prune -f` **tüm BuildKit cache'ini** siliyor — yani madde 10 ile doğrudan çelişiyor: bir yandan cache'i çalıştırmaya uğraşıyoruz, diğer yandan her build'de siliyoruz.
@@ -320,7 +345,7 @@ Registry inline cache (madde 10) yerel cache olmadan da çalışır, ama yerel c
 
 ---
 
-### 11. Pre-pull, deploy edilmeyecek servisleri de çekiyor
+### 11. Pre-pull, deploy edilmeyecek servisleri de çekiyor  ✅ **TAMAMLANDI**
 **Nerede:** [deployAllServices.groovy:61-79](vars/deployAllServices.groovy#L61)
 
 Pre-pull döngüsü `isDeployingSvc` kontrolü yapmadan **tüm** servisleri her host'a çekiyor:
@@ -332,7 +357,7 @@ Pre-pull döngüsü `isDeployingSvc` kontrolü yapmadan **tüm** servisleri her 
 
 ---
 
-### 12. Quality gate'ler ilk denemeden önce koşulsuz bekliyor ⚠️ iddia yumuşatıldı
+### 12. Quality gate'ler ilk denemeden önce koşulsuz bekliyor ⚠️ iddia yumuşatıldı  ✅ **TAMAMLANDI**
 **Nerede:** [trivyQualityGate.groovy:33](vars/trivyQualityGate.groovy#L33), [checkovQualityGate.groovy:36](vars/checkovQualityGate.groovy#L36), [osvQualityGate.groovy:33](vars/osvQualityGate.groovy#L33)
 
 `sleep(retryDelay)` döngünün **başında** — sonuç hazır olsa bile 10 sn bekleniyor, üç gate için toplam 30 sn.
@@ -354,7 +379,7 @@ Pull ve deploy şu an servis × host sırayla. Jenkins `parallel` ile eşzamanl�
 
 ## P3 — Dayanıklılık
 
-### 14. `waitForQualityGate()` timeout'suz
+### 14. `waitForQualityGate()` timeout'suz  ✅ **TAMAMLANDI**
 **Nerede:** [sonarQubeQualityGate.groovy:10](vars/sonarQubeQualityGate.groovy#L10)
 
 Webhook hiç gelmezse adım süresiz asılı kalır — yalnızca job timeout'u kurtarır (örnekte **19999 sn ≈ 5,5 saat**), o süre boyunca bir executor tutulur.
@@ -363,7 +388,7 @@ Webhook hiç gelmezse adım süresiz asılı kalır — yalnızca job timeout'u 
 
 ---
 
-### 15. Tarama host'u çağrılarında `ConnectTimeout` yok
+### 15. Tarama host'u çağrılarında `ConnectTimeout` yok  ✅ **TAMAMLANDI**
 `checkovScan` (3), `osvScan` (4), `trivyScan` (1) — yalnızca `-o StrictHostKeyChecking=no`. Yanıt vermeyen bir DockerScan host'u adımı süresiz bloklar. DockerScan host'u için `sshPort` desteği de hiç yok.
 **Çözüm:** Madde 9'daki ortak `sshOpts` bunu da kapsar.
 **Efor:** madde 9'a dahil
@@ -377,14 +402,14 @@ Webhook hiç gelmezse adım süresiz asılı kalır — yalnızca job timeout'u 
 
 ---
 
-### 17. Deploy host'unda koşulsuz `docker image prune -f`
+### 17. Deploy host'unda koşulsuz `docker image prune -f`  ✅ **TAMAMLANDI**
 [deployService.groovy:343](vars/deployService.groovy#L343) — bu oturumda eklendi. Her deploy'da host geneli çalışıyor; paylaşımlı host'ta başka projelerin dangling imajlarını da siliyor. Pratikte zararsız ama kullanıcının seçmediği bir yan etki.
 **Çözüm:** `pruneDangling` knob'u (varsayılan `true`).
 **Efor:** ~15 dk · **Risk:** yok
 
 ---
 
-### 24. `checkDiff` baseline yokken "değişiklik yok" diyor 🆕
+### 24. `checkDiff` baseline yokken "değişiklik yok" diyor 🆕  ✅ **TAMAMLANDI**
 **Nerede:** [checkDiff.groovy:22-30](vars/checkDiff.groovy#L22)
 
 `prevCommit`/`currCommit` boş ya da geçersizse `0` (= değişiklik yok) dönüyor. İlk build'de ya da `GIT_PREVIOUS_SUCCESSFUL_COMMIT` yokken "hiçbir şey değişmedi" anlamına geliyor — güvenli yön **tam tersi** olmalıydı ("bilinmiyor → build et").
@@ -398,7 +423,7 @@ Webhook hiç gelmezse adım süresiz asılı kalır — yalnızca job timeout'u 
 
 ---
 
-### 25. `extraFiles` yolları tırnaksız 🆕
+### 25. `extraFiles` yolları tırnaksız 🆕  ✅ **TAMAMLANDI**
 **Nerede:** [deployService.groovy:143](vars/deployService.groovy#L143) civarı — `scp ${scpFlags} -P ${sshPort} ... ${src} ${sshUser}@${deployIp}:${cleanDestPath}`
 
 `src` ve `dest` `services.yml`'den geliyor ve tırnaksız gömülüyor. Boşluk içeren bir yol komutu bölüyor. `services.yml` repo içinde olduğu için enjeksiyon riski düşük, ama boşluklu dizin adı sessizce yanlış dosya kopyalıyor.
@@ -409,7 +434,7 @@ Webhook hiç gelmezse adım süresiz asılı kalır — yalnızca job timeout'u 
 
 ## P4 — Tutarlılık
 
-### 29. `SSS.md` / `FAQ.md` bu plandan sonra yanlış bilgi verecek 🆕
+### 29. `SSS.md` / `FAQ.md` bu plandan sonra yanlış bilgi verecek 🆕  ✅ **TAMAMLANDI**
 **Nerede:** [docs/SSS.md](docs/SSS.md) (562 satır), [docs/FAQ.md](docs/FAQ.md) (561 satır) — ikisi de hiç okunmadı, yalnızca grep'lendi.
 
 Grep sonucu: her iki dosyada **11'er ayrı `deployService()` atıfı** var — Q18 gibi başlıklar, `deployService([...])` kod örneği (satır 481/480), credential akışı anlatımı, sorun giderme adımları.
@@ -423,20 +448,20 @@ Ayrıca `docs/02-*.md` ve `docs/03-*.md` (538 satır) hiç okunmadı; içlerinde
 
 ---
 
-### 18. `services.yml` yolu bazı fonksiyonlarda sabit
+### 18. `services.yml` yolu bazı fonksiyonlarda sabit  ✅ **TAMAMLANDI**
 `dockerCleanup` ve `deployAllServices` `SERVICES_FILE` destekliyor; `checkovScan`, `osvScan`, `trivyScan` `'services.yml'` sabitini kullanıyor. Tek bir `resolveServicesFile()` yardımcısı.
 **Efor:** ~30 dk · **Risk:** yok
 
-### 19. `sshUser` varsayılanı dört ayrı yerde tekrarlanıyor
+### 19. `sshUser` varsayılanı dört ayrı yerde tekrarlanıyor  ✅ **TAMAMLANDI**
 `'your-user'` literali `deployService`, `pullService`, `runTestsInContainer`, `deployAllServices` içinde ayrı ayrı. `globalConfig()`'e `DEPLOY_SSH_USER` eklenip oradan okunmalı.
 **Efor:** ~30 dk · **Risk:** düşük
 
-### 20. Satır sonları karışık
+### 20. Satır sonları karışık  ✅ **TAMAMLANDI**
 `vars/` içinde 9 dosya CRLF, 9 dosya LF. `.gitattributes` yok, git uyarı veriyor. Fonksiyonel etkisi yok, diff gürültüsü yaratıyor.
 **Çözüm:** `.gitattributes` (`*.groovy text eol=lf`) + tek seferlik normalizasyon.
 **Efor:** ~15 dk · **Risk:** yok (tek seferlik büyük diff)
 
-### 26. `README.md` / `README.TR.md` ikizleri elle senkron tutuluyor 🆕
+### 26. `README.md` / `README.TR.md` ikizleri elle senkron tutuluyor 🆕  ✅ **TAMAMLANDI**
 İki README ve iki kullanım kılavuzu (TR/EN) satır satır aynı yapıda. Bu oturumdaki değişikliklerde her düzenlemeyi iki kez yapmak gerekti — birinin unutulması an meselesi. Şu an senkronlar, ama bu plan 20+ değişiklik öneriyor.
 **Çözüm:** Kısa vadede bir kontrol listesi; uzun vadede fonksiyon referansını tek kaynaktan üretmek (ya da EN'i kanonik yapıp TR'yi özet tutmak).
 **Efor:** karar gerektirir · **Risk:** yok
