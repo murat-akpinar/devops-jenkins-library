@@ -135,7 +135,9 @@ pipeline {
                                 nexusRegistryUrl : env.NEXUS_REGISTRY_URL,
                                 registryPath     : env.REGISTRY_PATH,
                                 jenkinsRegistry  : env.HARBOR_REGISTRY,
-                                envFile          : svc.env_file
+                                envFile          : svc.env_file,
+                                target           : svc.target,        // opsiyonel: multi-stage Dockerfile stage'i
+                                pushLatest       : svc.push_latest    // opsiyonel: false → :latest push edilmez
                             ])
                         } else {
                             echo "⏭️ [${svc.name}]: değişiklik yok — build & push atlanıyor."
@@ -152,7 +154,10 @@ pipeline {
         stage('DockerScan Scan')         { steps { trivyScan(env.VERSION) } }
         stage('DockerScan Quality Gate') { steps { trivyQualityGate(env.APP, 'C') } }
 
-        stage('Docker Cleanup') { steps { sh 'docker system prune -af || true' } }
+        // dockerCleanup(): sadece dangling imaj + build cache temizler, env.VERSION dışındaki
+        // eski tag'leri services.yml'e bakarak siler. `docker system prune -af` deploy aşamasının
+        // henüz çekmediği imajları da sildiği için artık kullanılmıyor.
+        stage('Docker Cleanup') { steps { dockerCleanup() } }
 
         stage('Run Tests') {
             steps {
@@ -185,73 +190,22 @@ pipeline {
             }
         }
 
+        // deployAllServices(): imajları tüm hedeflere önden çeker, sonra yalnızca değişen
+        // servisleri deploy eder ve `docker compose up`ı her host'ta tam olarak bir kez çalıştırır.
+        // Aşağıdaki tek çağrı, eskiden bu stage'de elle yazılan pull + deploy döngüsünün yerini alır.
         stage('Deploy') {
             steps {
                 script {
                     echo "Deploy Edilecek Uygulama: ${env.APP}:${env.VERSION}"
-                    def servicesConfig = readYaml file: 'services.yml'
-                    def credentialsMap = collectCredentials()
-                    echo "📥 [Örnek] Tüm servis imajları önceden Nexus'tan çekiliyor..."
-                    servicesConfig.services.each { svc ->
-                        def imageName = resolveImageName(svc.name, svc.image_name)
-                        def targetsForPrePull = resolveTargets(svc)
-                        def sshUserForService = svc.ssh_user ?: 'your-user'
-                        def sshPortForService = svc.ssh_port ?: env.GLOBAL_SSH_PORT?.toInteger() ?: 22
-                        targetsForPrePull.each { ip ->
-                            pullService([
-                                serviceName    : svc.name,
-                                imageName      : imageName,
-                                version        : env.VERSION,
-                                deployIp       : ip,
-                                nexusUrl       : env.NEXUS_URL,
-                                nexusRegistryUrl: env.NEXUS_REGISTRY_URL,
-                                registryPath   : env.REGISTRY_PATH,
-                                sshUser        : sshUserForService,
-                                sshPort        : sshPortForService
-                            ])
-                        }
-                    }
-                    def deployingSvcs = servicesConfig.services.findAll { s ->
-                        def k = normalizeKey(s.name)
-                        (doFlag(k) == '1') || env.PULL_EXISTING == '1'
-                    }
-                    def lastDeployingSvc = deployingSvcs ? deployingSvcs[-1] : null
-                    servicesConfig.services.each { svc ->
-                        def key = normalizeKey(svc.name)
-                        def imageName = resolveImageName(svc.name, svc.image_name)
-                        def shouldPull = (doFlag(key) == '1') || env.PULL_EXISTING == '1'
-                        def sshPortForService = svc.ssh_port ?: env.GLOBAL_SSH_PORT?.toInteger() ?: 22
-                        def targets = resolveTargets(svc)
-                        targets.each { ip ->
-                            if (shouldPull) {
-                                def isFirstService          = (svc == servicesConfig.services[0])
-                                def extraEnvVarsForService  = isFirstService ? credentialsMap : [:]
-                                def envFileForService       = svc.env_file
-                                def extraFilesForService    = svc.extra_files ?: []
-                                deployService([
-                                    serviceName             : imageName,
-                                    imageName               : imageName,
-                                    version                 : env.VERSION,
-                                    appName                 : env.APP,
-                                    deployIp                : ip,
-                                    nexusUrl                : env.NEXUS_URL,
-                                    nexusRegistryUrl        : env.NEXUS_REGISTRY_URL,
-                                    registryPath            : env.REGISTRY_PATH,
-                                    dockerComposeFile       : svc.docker_compose_file ?: 'docker-compose.yml',
-                                    dockerComposeRemoteFile : svc.docker_compose_remote_file ?: svc.docker_compose_file ?: 'docker-compose.yml',
-                                    envFile                 : envFileForService,
-                                    extraEnvVars            : extraEnvVarsForService,
-                                    extraFiles              : extraFilesForService,
-                                    shouldPull              : false,
-                                    sshUser                 : svc.ssh_user ?: 'your-user',
-                                    sshPort                 : sshPortForService,
-                                    runCompose              : (lastDeployingSvc != null && svc == lastDeployingSvc)
-                                ])
-                            } else {
-                                echo "⏭️ [${svc.name} @ ${ip}]: değişmedi → pull atlanıyor."
-                            }
-                        }
-                    }
+                    deployAllServices([
+                        appName         : env.APP,
+                        version         : env.VERSION,
+                        nexusUrl        : env.NEXUS_URL,
+                        nexusRegistryUrl: env.NEXUS_REGISTRY_URL,
+                        registryPath    : env.REGISTRY_PATH,
+                        credentialsMap  : collectCredentials(),
+                        pruneImages     : false   // true → deploy host'unda kullanılmayan TÜM imajlar silinir
+                    ])
                 }
             }
         }

@@ -1,6 +1,7 @@
 import groovy.transform.Field
 
 @Field Set executedComposeKeys = [] as Set
+@Field Set copiedComposeKeys = [] as Set
 
 def call(Map config) {
     def serviceName = config.serviceName
@@ -21,7 +22,12 @@ def call(Map config) {
     def extraFiles = config.extraFiles ?: [] // [{src: 'nginx.conf', dest: '/app/appname/nginx.conf'}, ...]
     def extraEnvVars = config.extraEnvVars ?: [:] // [{key: 'DB_PASS', value: 'secret'}, ...] veya [DB_PASS: 'secret', ...]
     def runCompose = (config.runCompose != null ? config.runCompose : true)
+    // opsiyonel: deploy host'unda hiçbir container'ın kullanmadığı TÜM imajları siler (varsayılan kapalı)
+    def pruneImages = (config.pruneImages != null ? config.pruneImages.toString() == 'true' : false)
+    // `docker compose up --wait` için timeout (sn). Migration'ı uzun süren servisler yanlışlıkla fail olmasın diye geniş tutuldu.
+    def composeWaitTimeout = config.composeWaitTimeout ?: 180
     def composeOnceKey = config.composeOnceKey ?: "${appName}@${deployIp}:${dockerComposeRemoteFile}"
+    def shouldCopyComposeNow = !copiedComposeKeys.contains(composeOnceKey)
     def shouldRunComposeNow = runCompose && !executedComposeKeys.contains(composeOnceKey)
     
     echo "🚀 [${serviceName}] Deploy başlıyor..."
@@ -214,8 +220,9 @@ def call(Map config) {
                         def k = trimmed.substring(0, eqIdx).trim()
                         def v = trimmed.substring(eqIdx + 1)
                         def escapedK = k.replaceAll(/[.+*?^$()\[\]{}|\\]/, '\\\\$0')
+                        def safeReplacement = java.util.regex.Matcher.quoteReplacement("${k}=${v}")
                         if ((envFileContent =~ /(?m)^${escapedK}=/).find()) {
-                            envFileContent = envFileContent.replaceAll(/(?m)^${escapedK}=.*$/, "${k}=${v}")
+                            envFileContent = envFileContent.replaceAll(/(?m)^${escapedK}=.*$/, safeReplacement)
                         } else {
                             envFileContent += "${k}=${v}\n"
                         }
@@ -306,25 +313,46 @@ def call(Map config) {
         }
     }
     
-    // docker-compose dosyasını kopyala (uzakta farklı bir isimle saklanabilir)
-    if (runCompose && !shouldRunComposeNow) {
-        echo "⏭️ [${serviceName}] compose daha önce çalıştı (composeOnceKey=${composeOnceKey}) → tekrar atlandı"
+    // docker-compose dosyasını kopyala (uzakta farklı bir isimle saklanabilir).
+    // Kopyalama compose'u çalıştırmaktan bağımsızdır: aynı host'a deploy olan servislerden sadece
+    // sonuncusu `up` çalıştırır, ama compose dosyası ilk servis sırasında yerine konmuş olmalıdır.
+    if (shouldCopyComposeNow) {
+        copiedComposeKeys << composeOnceKey
+        sh """
+            scp -P ${sshPort} -o ConnectTimeout=20 ${dockerComposeFile} ${sshUser}@${deployIp}:/app/${appName}/${dockerComposeRemoteFile}
+        """
+    } else {
+        echo "⏭️ [${serviceName}] compose dosyası zaten kopyalandı (composeOnceKey=${composeOnceKey}) → tekrar atlandı"
     }
 
     if (shouldRunComposeNow) {
         executedComposeKeys << composeOnceKey
+        // "down" kaldırıldı → tüm container'ları durdurup kaldırmak gereksiz kesinti yaratıyordu.
+        // "up -d" zaten sadece config/image'i değişen container'ı yeniden oluşturur.
+        // Sabit "sleep 15s" yerine "--wait": container'lar (healthcheck tanımlıysa healthy, yoksa
+        // running) olana kadar beklenir; olmazsa komut hata döner ve Jenkins adımı durur.
         sh """
-            scp -P ${sshPort} -o ConnectTimeout=20 ${dockerComposeFile} ${sshUser}@${deployIp}:/app/${appName}/${dockerComposeRemoteFile}
-        """
-        
-        // Docker compose up
-        sh """
-            ssh -p ${sshPort} -o ConnectTimeout=20 ${sshUser}@${deployIp} "cd /app/${appName}; docker compose down || true"
             ssh -p ${sshPort} -o ConnectTimeout=20 ${sshUser}@${deployIp} "sudo chown -R ${sshUser}:${sshUser} /app/${appName}/"
-            ssh -p ${sshPort} -o ConnectTimeout=20 ${sshUser}@${deployIp} "cd /app/${appName} && docker compose -f ${dockerComposeRemoteFile} ${shouldCreateEnv ? '--env-file .env' : ''} up -d"
-            sleep 15s
+            ssh -p ${sshPort} -o ConnectTimeout=20 ${sshUser}@${deployIp} "cd /app/${appName} && docker compose -f ${dockerComposeRemoteFile} ${shouldCreateEnv ? '--env-file .env' : ''} up -d --wait --wait-timeout ${composeWaitTimeout}"
             ssh -p ${sshPort} -o ConnectTimeout=20 ${sshUser}@${deployIp} "cd /app/${appName}; docker compose logs --tail=100"
         """
+
+        // Aynı tag (ör. test-v1.0) tekrar deploy edildiğinde eski container yeni imaja geçer ve eski
+        // imaj hiçbir tag'e/container'a bağlı kalmaz (dangling) → burada temizlenir. "-a" YOK: başka
+        // bir tag'e bağlı imajlar (elle saklanan eski version'lar) hiç etkilenmez.
+        sh """
+            ssh -p ${sshPort} -o ConnectTimeout=20 ${sshUser}@${deployIp} "docker image prune -f || true"
+        """
+
+        // pruneImages: opsiyonel. "-a" hiçbir container'ın kullanmadığı TÜM imajları siler (sadece
+        // dangling değil) — eski version tag'lerinin sunucuda sınırsız birikmesini engeller. Jenkins
+        // agent'ında değil yalnızca bu deploy host'unda çalışır; az önce ayağa kalkan container'lar
+        // "kullanımda" sayıldığı için güvenlidir.
+        if (pruneImages) {
+            sh """
+                ssh -p ${sshPort} -o ConnectTimeout=20 ${sshUser}@${deployIp} "docker image prune -a -f || true"
+            """
+        }
     } else {
         echo "⏭️ [${serviceName}] runCompose=false → docker compose adımı atlandı"
     }

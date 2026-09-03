@@ -3,6 +3,7 @@ def call(Map config) {
     def version = config.version
     def servicePath = config.servicePath
     def dockerfile = config.dockerfile ?: 'Dockerfile'
+    def target = config.target // opsiyonel: multi-stage Dockerfile'da build edilecek stage
     def nexusUrl = config.nexusUrl
     def nexusRegistryUrl = config.nexusRegistryUrl ?: env.NEXUS_REGISTRY_URL ?: nexusUrl
     def registryPath = config.registryPath
@@ -10,6 +11,8 @@ def call(Map config) {
     def envFile = config.envFile // opsiyonel
     def nexusRepoCredentialId  = config.nexusRepoCredentialId ?: env.NEXUS_CREDENTIAL_ID ?: 'Nexus_Credentials'
     def harborCredentialId     = config.harborCredentialId ?: env.HARBOR_CREDENTIAL_ID ?: ''
+    // latest tag'i push'lamak build cache'ini (--cache-from) besler; kapatmak için pushLatest: false
+    def pushLatest = (config.pushLatest == null) ? true : (config.pushLatest.toString() == 'true')
 
     // Docker push/pull adresi (registry portu, örn: 8090)
     def nexusRegistry = nexusRegistryUrl.replaceAll('^https?://', '')
@@ -38,7 +41,9 @@ def call(Map config) {
 
     def useNexusAuth = nexusRepoCredentialId?.trim()
     def useHarbor    = jenkinsRegistry?.trim() && harborCredentialId?.trim()
-    def cacheFrom    = "${nexusRegistry}/repository/${registryPath}/${serviceName}:latest"
+    def versionImage = "${nexusRegistry}/repository/${registryPath}/${serviceName}:${version}"
+    def latestImage  = "${nexusRegistry}/repository/${registryPath}/${serviceName}:latest"
+    def cacheFrom    = latestImage
 
     def bar = '═' * 60
     def t0  = System.currentTimeMillis()
@@ -48,6 +53,7 @@ def call(Map config) {
 ╚${bar}╝
   📦 Servis  : ${serviceName}:${version}
   🖥️  Nexus   : ${nexusRegistry}/repository/${registryPath}/
+  ${target ? "🎯  Stage   : ${target}" : "🎯  Stage   : (tüm Dockerfile)"}
   ${useHarbor ? "🚢  Harbor  : ${jenkinsRegistry}" : "🚢  Harbor  : kullanılmıyor"}"""
 
     def secretSetup = useNexusAuth ? """
@@ -59,43 +65,52 @@ def call(Map config) {
         trap _cleanup EXIT
     """ : ""
 
+    // multi-stage Dockerfile'da yalnızca belirtilen stage build edilir (ör. target: 'runtime')
+    def targetArg = target?.toString()?.trim() ? "--target ${target} " : ""
+
     def dockerBuildCommand = useNexusAuth
-        ? "DOCKER_BUILDKIT=1 docker build --cache-from ${cacheFrom} --secret id=nexus_user,src=\"\$_NEXUS_USER_FILE\" --secret id=nexus_pass,src=\"\$_NEXUS_PASS_FILE\" -t ${serviceName}:${version} -f ${dockerfile} ."
-        : "DOCKER_BUILDKIT=1 docker build --cache-from ${cacheFrom} -t ${serviceName}:${version} -f ${dockerfile} ."
+        ? "DOCKER_BUILDKIT=1 docker build --cache-from ${cacheFrom} ${targetArg}--secret id=nexus_user,src=\"\$_NEXUS_USER_FILE\" --secret id=nexus_pass,src=\"\$_NEXUS_PASS_FILE\" -t ${serviceName}:${version} -f ${dockerfile} ."
+        : "DOCKER_BUILDKIT=1 docker build --cache-from ${cacheFrom} ${targetArg}-t ${serviceName}:${version} -f ${dockerfile} ."
 
     def shellScript = """
         set -e
 
         ${hasEnvFile ? """
-        { set +x; } 2>/dev/null; printf '  ┌─[1/4] .env dosyası kontrol ediliyor...\\n'; { set -x; } 2>/dev/null
+        { set +x; } 2>/dev/null; printf '  ┌─[1/4] .env dosyası kontrol ediliyor...\n'; { set -x; } 2>/dev/null
         if [ ! -f ${envFile} ]; then
             echo "❌ ${envFile} dosyası bulunamadı! Build için ${envFile} dosyası gereklidir."
             exit 1
         fi
-        { set +x; } 2>/dev/null; printf '  └─ ✅ ${envFile} mevcut\\n'; { set -x; } 2>/dev/null
+        { set +x; } 2>/dev/null; printf '  └─ ✅ ${envFile} mevcut\n'; { set -x; } 2>/dev/null
         """ : ""}
 
         ${secretSetup}
 
-        { set +x; } 2>/dev/null; printf '  ┌─[2/4] Docker image build ediliyor...\\n'; { set -x; } 2>/dev/null
+        { set +x; } 2>/dev/null; printf '  ┌─[2/4] Docker image build ediliyor...\n'; { set -x; } 2>/dev/null
         cd ${servicePath}
         ${dockerBuildCommand}
-        { set +x; } 2>/dev/null; printf '  └─ ✅ Build tamamlandı\\n'; { set -x; } 2>/dev/null
+        { set +x; } 2>/dev/null; printf '  └─ ✅ Build tamamlandı\n'; { set -x; } 2>/dev/null
 
-        { set +x; } 2>/dev/null; printf '  ┌─[3/4] Nexus registry push ediliyor...\\n'; { set -x; } 2>/dev/null
-        docker tag ${serviceName}:${version} ${nexusRegistry}/repository/${registryPath}/${serviceName}:${version}
-        docker push ${nexusRegistry}/repository/${registryPath}/${serviceName}:${version}
-        docker tag ${serviceName}:${version} ${nexusRegistry}/repository/${registryPath}/${serviceName}:latest
-        docker push ${nexusRegistry}/repository/${registryPath}/${serviceName}:latest
-        { set +x; } 2>/dev/null; printf '  └─ ✅ Nexus push tamamlandı\\n'; { set -x; } 2>/dev/null
+        { set +x; } 2>/dev/null; printf '  ┌─[3/4] Nexus registry push ediliyor...\n'; { set -x; } 2>/dev/null
+        docker tag ${serviceName}:${version} ${versionImage}
+        docker push ${versionImage}
+        ${pushLatest ? """
+        # latest'i yerel kısa isimden DEĞİL, az önce push edilen Nexus tag'inden üret.
+        # Paralel job / cleanup sonrası ${serviceName}:${version} local'de kalmayabiliyor.
+        docker tag ${versionImage} ${latestImage} || (docker pull ${versionImage} && docker tag ${versionImage} ${latestImage})
+        docker push ${latestImage}
+        """ : """
+        echo "  ⏭️ latest tag atlandı (pushLatest=false)"
+        """}
+        { set +x; } 2>/dev/null; printf '  └─ ✅ Nexus push tamamlandı\n'; { set -x; } 2>/dev/null
 
         ${useHarbor ? """
-        { set +x; } 2>/dev/null; printf '  ┌─[4/4] Harbor registry push ediliyor...\\n'; { set -x; } 2>/dev/null
+        { set +x; } 2>/dev/null; printf '  ┌─[4/4] Harbor registry push ediliyor...\n'; { set -x; } 2>/dev/null
         printf '%s' "\$HARBOR_PASS" | docker login ${jenkinsRegistry.split('/')[0]} -u "\$HARBOR_USER" --password-stdin
-        docker pull ${nexusRegistry}/repository/${registryPath}/${serviceName}:${version}
-        docker tag ${nexusRegistry}/repository/${registryPath}/${serviceName}:${version} ${jenkinsRegistry}/${serviceName}:${version}
+        docker pull ${versionImage}
+        docker tag ${versionImage} ${jenkinsRegistry}/${serviceName}:${version}
         docker push ${jenkinsRegistry}/${serviceName}:${version}
-        { set +x; } 2>/dev/null; printf '  └─ ✅ Harbor push tamamlandı\\n'; { set -x; } 2>/dev/null
+        { set +x; } 2>/dev/null; printf '  └─ ✅ Harbor push tamamlandı\n'; { set -x; } 2>/dev/null
         """ : ""}
 
         cd ..

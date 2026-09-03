@@ -65,7 +65,9 @@ devops-jenkins-library/
 │   ├── buildAndPushService.groovy     # Docker build & push
 │   ├── pullService.groovy             # Docker image pull to server
 │   ├── runTestsInContainer.groovy     # Run tests in container
-│   ├── deployService.groovy           # Deploy operation
+│   ├── deployService.groovy           # Deploy operation (single service)
+│   ├── deployAllServices.groovy       # Deploy all services from services.yml
+│   ├── dockerCleanup.groovy           # Safe Docker cleanup on the agent
 │   ├── trivyScan.groovy               # DockerScan security scan
 │   ├── trivyQualityGate.groovy        # DockerScan Quality Gate check
 │   ├── checkovScan.groovy             # Checkov IaC security scan
@@ -76,7 +78,8 @@ devops-jenkins-library/
 │   └── emailTeams.groovy              # Team email list
 ├── Example/                           # Example files
 │   ├── Jenkins_example.groovy         # Full Jenkinsfile example
-│   └── services_example.yml          # services.yml example
+│   ├── services_example.yml          # services.yml example
+│   └── sonar-project_example.properties # sonar-project.properties example
 ├── docs/                              # Documentation
 │   ├── 01-cicd-hazirliklari.md       # Pre-CI/CD preparation guide
 │   ├── 02-pipeline-kurulumu.md       # Pipeline setup steps
@@ -248,17 +251,22 @@ deployService([
 
 ---
 
-### `sonarQubeAnalysis(serverName)`
+### `sonarQubeAnalysis(serverName, options)`
 
-Runs SonarQube code analysis.
+Runs SonarQube code analysis. The flow is chosen automatically from the workspace contents:
+
+- **`.sln` found, .NET flow.** Runs `dotnet sonarscanner begin` / `dotnet build` / `end`. Every `.sln` is built inside a single analysis, so no manual selection is needed. Project key/name and the exclusion values are read from `sonar-project.properties`; SonarScanner for .NET (v8+) does not recognise that file and fails the `end` step if it sees it, so it is moved aside for the duration of the analysis and restored afterwards. Properties that are not defined are not passed at all, because an empty `/d:` value triggers an "invalid format" warning.
+- **No `.sln` (PHP, Node, Python, ...), generic flow.** Runs plain `sonar-scanner`, which reads `sonar-project.properties` itself.
 
 **Parameters:**
 - `serverName` (String): SonarQube server name as defined in Jenkins
+- `options` (Map, optional): `dotnetRoot` - .NET SDK root (default: `env.DOTNET_ROOT` or `/home/jenkins/.dotnet`)
 
-> A `sonar-project.properties` file must exist in the project root.
+> A `sonar-project.properties` file must exist in the project root. See `Example/sonar-project_example.properties`.
 
 ```groovy
 sonarQubeAnalysis(env.SONAR_SERVER)
+sonarQubeAnalysis(env.SONAR_SERVER, [dotnetRoot: '/opt/dotnet'])
 ```
 
 ---
@@ -294,17 +302,20 @@ def exists = checkTagOnNexus(imageName, env.VERSION, env.NEXUS_URL, env.REGISTRY
 
 ### `checkDiff(servicePath, prevCommit, currCommit)`
 
-Checks for git diff at the specified path.
+Checks for git diff at the specified path(s).
 
 **Parameters:**
-- `servicePath` (String): Path to check (e.g. `backend/`)
+- `servicePath` (String or List): Path(s) to check (e.g. `backend/` or `['backend/', 'shared/']`). Returns `1` if *any* of them changed. Empty or omitted, the whole repo is checked.
 - `prevCommit` (String): Previous commit hash
 - `currCommit` (String): Current commit hash
 
 **Return value:** `1` (changes detected) or `0` (no changes)
 
+**Submodule support:** if a path is a git submodule (checked out with `--remote`, for example), the superproject's gitlink pointer may never be bumped even though the submodule itself has new commits. For such paths the submodule's current `HEAD` is compared against the SHA last pinned in the superproject, instead of diffing the superproject, so changes are detected without a pointer bump.
+
 ```groovy
 def changed = checkDiff(svc.path, env.GIT_PREVIOUS_SUCCESSFUL_COMMIT, env.GIT_COMMIT)
+def multi   = checkDiff(['backend/', 'shared/'], prev, curr)   // multiple paths
 ```
 
 ---
@@ -321,6 +332,7 @@ Builds a Docker image and pushes it to Nexus and optionally Harbor.
 | `version` | ✅ | Tag version |
 | `servicePath` | ✅ | Service directory (Docker context) |
 | `dockerfile` | ❌ | Dockerfile path (default: `Dockerfile`) |
+| `target` | ❌ | Stage to build in a multi-stage Dockerfile (`--target`) |
 | `nexusUrl` | ✅ | Nexus REST API URL |
 | `nexusRegistryUrl` | ❌ | Nexus Docker registry URL (default: `nexusUrl`) |
 | `registryPath` | ✅ | Registry path |
@@ -328,6 +340,7 @@ Builds a Docker image and pushes it to Nexus and optionally Harbor.
 | `envFile` | ❌ | .env file path |
 | `nexusRepoCredentialId` | ❌ | Nexus credential ID (default: `NEXUS_CREDENTIAL_ID`) |
 | `harborCredentialId` | ❌ | Harbor credential ID |
+| `pushLatest` | ❌ | Also push the `:latest` tag (default: `true`). `:latest` feeds `--cache-from`, so turning it off makes builds colder. |
 
 ```groovy
 buildAndPushService([
@@ -339,9 +352,13 @@ buildAndPushService([
     nexusRegistryUrl : env.NEXUS_REGISTRY_URL,
     registryPath     : env.REGISTRY_PATH,
     jenkinsRegistry  : env.HARBOR_REGISTRY,
-    envFile          : svc.env_file
+    envFile          : svc.env_file,
+    target           : svc.target,       // optional: multi-stage build target
+    pushLatest       : svc.push_latest   // optional: false skips the :latest tag
 ])
 ```
+
+> The `:latest` tag and the Harbor push are derived from the image reference just pushed to Nexus, not from the local short name, because a parallel job or a cleanup can drop the local tag between steps.
 
 ---
 
@@ -427,7 +444,12 @@ Deploys a service to the target server.
 | `shouldPull` | ❌ | Pull Docker image (default: `false`) |
 | `imageName` | ❌ | Docker image name (default: `serviceName`) |
 | `sshUser` | ❌ | SSH username (default: `your-user`) |
+| `sshPort` | ❌ | SSH port (default: `22`) |
 | `runCompose` | ❌ | Run `docker compose up -d` (default: `true`) |
+| `composeWaitTimeout` | ❌ | `--wait-timeout` for `docker compose up --wait`, in seconds (default: `180`) |
+| `pruneImages` | ❌ | Run `docker image prune -a -f` on the deploy host after compose (default: `false`) |
+
+**Compose behaviour:** `docker compose down` is no longer run, because it caused unnecessary downtime and `up -d` already recreates only the containers whose config or image changed. Instead of a fixed `sleep`, `up -d --wait` waits until containers are healthy (or running, when no healthcheck is defined) and fails the step otherwise. After compose, `docker image prune -f` removes only images left dangling by the new deploy; images still bound to another tag are untouched. Copying the compose file and running it are tracked separately, so when several services share a host the file is copied by the first service while only the last one runs `up`.
 
 ```groovy
 deployService([
@@ -444,9 +466,69 @@ deployService([
     extraFiles              : svc.extra_files,
     shouldPull              : false,
     sshUser                 : svc.ssh_user ?: 'your-user',
-    runCompose              : true
+    sshPort                 : svc.ssh_port ?: 22,
+    runCompose              : true,
+    pruneImages             : false
 ])
 ```
+
+---
+
+### `deployAllServices(config)`
+
+Deploys every service in `services.yml` to its target hosts. It replaces the hand-written pull + deploy loop: all images are pre-pulled, then only the services that changed are deployed, and `docker compose up` is guaranteed to run **exactly once per host** (resolved through the last service deploying to that host, so services with different `deploy_targets` are handled correctly).
+
+**Parameters (Map):**
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `appName` | ✅ | Application name (deploy path: `/app/<appName>/`) |
+| `version` | ✅ | Tag version |
+| `nexusUrl` | ✅ | Nexus URL |
+| `registryPath` | ✅ | Registry path |
+| `nexusRegistryUrl` | ❌ | Nexus Docker registry URL (default: `nexusUrl`) |
+| `nexusCredentialId` | ❌ | Nexus credential ID (default: `NEXUS_CREDENTIAL_ID`) |
+| `credentialsMap` | ❌ | Credentials written into `.env` (from `collectCredentials()`) |
+| `servicesFile` | ❌ | services.yml path (default: `SERVICES_FILE` env or `services.yml`) |
+| `pruneImages` | ❌ | Passed through to `deployService` (default: `false`) |
+| `sshUser` / `sshPort` | ❌ | Fallbacks used when the service does not define its own |
+
+Target hosts are resolved in this order: `DEPLOY_TARGETS` env, the service's own `deploy_targets`, `GLOBAL_TARGETS` (set by the Initialize stage from `environments.<env>`), then `IP1`..`IP4`.
+
+> `credentialsMap` is passed to **every** deployed service, not only the first one. All services share the same `/app/<appName>/.env`, so restricting it to the first service silently skipped credential updates whenever a later service was the one that changed.
+
+```groovy
+deployAllServices([
+    appName         : env.APP,
+    version         : env.VERSION,
+    nexusUrl        : env.NEXUS_URL,
+    nexusRegistryUrl: env.NEXUS_REGISTRY_URL,
+    registryPath    : env.REGISTRY_PATH,
+    credentialsMap  : collectCredentials(),
+    pruneImages     : false
+])
+```
+
+---
+
+### `dockerCleanup(config)`
+
+Frees disk space on the Jenkins agent after a build.
+
+Only dangling images and the build cache are pruned; tagged images are left alone. (`docker system prune -af` removed images the Deploy stage had not pulled yet and broke the deploy.) If `keepVersion` (or `env.VERSION`) is set and `services.yml` exists, every image listed there also has its **older tags** removed, so the project name never has to be written into the Jenkinsfile, and images belonging to other projects or base images (node, dotnet, ...) on a shared agent are never touched.
+
+**Parameters (Map, all optional):**
+
+| Parameter | Description |
+|-----------|-------------|
+| `keepVersion` | Tag to keep (default: `env.VERSION`) |
+| `servicesFile` | services.yml path (default: `SERVICES_FILE` env or `services.yml`) |
+
+```groovy
+dockerCleanup()
+```
+
+> For a full cleanup, call it **after** the Deploy stage, otherwise images that have not been pulled yet may be removed.
 
 **extraFiles Formats:**
 ```yaml

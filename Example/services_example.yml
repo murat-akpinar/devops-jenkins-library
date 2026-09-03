@@ -22,6 +22,7 @@ services:
   - name: backend
     path: backend/
     dockerfile: Dockerfile          # varsayılan: Dockerfile
+    target: runtime                 # opsiyonel: multi-stage Dockerfile'da build edilecek stage
     image_name: myapp_backend       # proje imaj adı
     env_file: backend/.env          # opsiyonel: build/deploy için .env
     extra_files:
@@ -32,3 +33,17 @@ services:
     dockerfile: Dockerfile
     image_name: myapp_frontend
     env_file: frontend/.env
+    push_latest: false              # opsiyonel: :latest tag'i push edilmesin (varsayılan: true)
+
+# ── Servis bazlı opsiyonel alanlar ──────────────────────────────────────────
+#   target                     : multi-stage Dockerfile'da build edilecek stage (--target)
+#   push_latest                : false → :latest tag'i push edilmez (build cache'i zayıflar)
+#   deploy_targets             : bu servise özel hedef IP listesi (environments'ı ezer)
+#   ssh_user / ssh_port        : bu servise özel SSH kullanıcısı / portu
+#   docker_compose_file        : yerel compose dosyası (varsayılan: docker-compose.yml)
+#   docker_compose_remote_file : sunucuda saklanacak compose dosya adı
+#   test_command               : container içinde çalıştırılacak test komutu
+#
+# NOT: checkDiff() artık submodule path'lerini tanır — `path` bir submodule ise
+# superproject'teki gitlink bump'lanmamış olsa bile değişiklik yakalanır.
+# `path` alanına liste de verilebilir (ör. [backend/, shared/]).
