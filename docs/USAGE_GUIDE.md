@@ -82,7 +82,7 @@ services:
 | `services[].name` | ✅ | Service name |
 | `services[].path` | ✅ | Service directory (for git diff) |
 | `services[].dockerfile` | ✅ | Dockerfile path |
-| `services[].scan_path` | ❌ | Directory covered by the Checkov/OSV scan (default: `path`) |
+| `services[].scan_path` | ❌ | Directory **or list of directories** covered by the Checkov/OSV scan (default: `path`) |
 | `services[].target` | ❌ | Stage to build in a multi-stage Dockerfile (`--target`) |
 | `services[].push_latest` | ❌ | `false` skips pushing the `:latest` tag (default: `true`) |
 | `services[].image_name` | ✅ | Docker image name |

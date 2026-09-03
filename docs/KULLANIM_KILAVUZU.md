@@ -82,7 +82,7 @@ services:
 | `services[].name` | ✅ | Servis adı |
 | `services[].path` | ✅ | Servis dizini (git diff için) |
 | `services[].dockerfile` | ✅ | Dockerfile yolu |
-| `services[].scan_path` | ❌ | Checkov/OSV taramasının kapsadığı dizin (varsayılan: `path`) |
+| `services[].scan_path` | ❌ | Checkov/OSV taramasının kapsadığı dizin ya da dizin **listesi** (varsayılan: `path`) |
 | `services[].target` | ❌ | Multi-stage Dockerfile'da build edilecek stage (`--target`) |
 | `services[].push_latest` | ❌ | `false` → `:latest` tag'i push edilmez (varsayılan: `true`) |
 | `services[].image_name` | ✅ | Docker imaj adı |

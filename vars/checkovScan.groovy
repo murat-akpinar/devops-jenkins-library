@@ -36,12 +36,34 @@ def call(String tag) {
         // tarama tüm repoyu kapsar ve diğer servislerin bağımlılıkları İKİNCİ KEZ sayılır
         // (frontend'in zafiyetleri nginx'in notuna da yansır, proje notu şişer).
         // scan_path tanımlıysa tarama yalnızca o dizini kapsar; tanımlı değilse path kullanılır.
-        def servicePath = (svc.scan_path ?: svc.path)?.toString()?.replaceAll('/+$', '') ?: svc.name
+        // Tarama yolu build yolundan AYRI olabilir ve LİSTE de olabilir.
+        //
+        // Ayrı olması gerekir: nginx gibi servisler, Dockerfile'ları repo kökünü build
+        // context'i olarak gerektirdiği için `path: '.'` kullanır; o zaman tarama tüm repoyu
+        // kapsar ve diğer servislerin bağımlılıkları İKİNCİ KEZ sayılır.
+        //
+        // Liste olması gerekir: compose'da kendi servisi olmayan ama kaynağı bir başka
+        // servisin imajına giren dizinler (ör. nginx'in içine build edilen frontend/) aksi
+        // halde hiç taranmaz. `scan_path: [nginx/, frontend/]` ikisini birden kapsar.
+        def scanPaths = ((svc.scan_path ?: svc.path) instanceof Collection
+                            ? (svc.scan_path ?: svc.path)
+                            : [svc.scan_path ?: svc.path])
+                        .collect { it?.toString()?.replaceAll('/+$', '') }
+                        .findAll { it }
+        if (!scanPaths) { scanPaths = [svc.name] }
+        def servicePath = scanPaths.join(', ')
 
         if (env."DO_${key}" != '1') {
             echo "  ⏭️  [${svc.name}]: build edilmedi → tarama atlanıyor."
             return
         }
+
+        // Tek yolda eski davranış korunur: içerik uzak dizinin köküne açılır.
+        // Çoklu yolda dizinler adlarıyla taşınır (nginx/, frontend/) — tarayıcılar
+        // özyinelemeli çalıştığı için bulgular aynı, yalnızca rapordaki yol değişir.
+        def tarCmd = (scanPaths.size() == 1)
+            ? "tar -C \${WORKSPACE}/${scanPaths[0]} --exclude='.git' --exclude='.svn' --exclude='node_modules' --exclude='vendor' --exclude='bower_components' --exclude='dist' --exclude='build' --exclude='out' --exclude='target' --exclude='bin' --exclude='obj' --exclude='__pycache__' --exclude='.venv' --exclude='venv' --exclude='.tox' --exclude='.mypy_cache' --exclude='.pytest_cache' --exclude='.terraform' --exclude='.gradle' --exclude='.idea' --exclude='.vscode' --exclude='*.env' --exclude='.env' --exclude='.env.*' -cf - ."
+            : "tar -C \${WORKSPACE} --exclude='.git' --exclude='.svn' --exclude='node_modules' --exclude='vendor' --exclude='bower_components' --exclude='dist' --exclude='build' --exclude='out' --exclude='target' --exclude='bin' --exclude='obj' --exclude='__pycache__' --exclude='.venv' --exclude='venv' --exclude='.tox' --exclude='.mypy_cache' --exclude='.pytest_cache' --exclude='.terraform' --exclude='.gradle' --exclude='.idea' --exclude='.vscode' --exclude='*.env' --exclude='.env' --exclude='.env.*' -cf - ${scanPaths.join(' ')}"
 
         echo "  ┌─ [${imageName}:${tag}] taranıyor..."
         try {
@@ -54,7 +76,7 @@ def call(String tag) {
                 # scp -r tüm dizini (node_modules, .git, build çıktıları ve .env dosyaları
                 # dahil) tarama sunucusuna gönderiyordu; hem yavaştı hem de servis .env'i
                 # uzak /tmp'de kalıyordu. tar ile filtrelenip tek akışta gönderiliyor.
-                tar -C \${WORKSPACE}/${servicePath} --exclude='.git' --exclude='.svn' --exclude='node_modules' --exclude='vendor' --exclude='bower_components' --exclude='dist' --exclude='build' --exclude='out' --exclude='target' --exclude='bin' --exclude='obj' --exclude='__pycache__' --exclude='.venv' --exclude='venv' --exclude='.tox' --exclude='.mypy_cache' --exclude='.pytest_cache' --exclude='.terraform' --exclude='.gradle' --exclude='.idea' --exclude='.vscode' --exclude='*.env' --exclude='.env' --exclude='.env.*' -cf - . |
+                ${tarCmd} |
                   ssh ${SSH_OPTS} -o StrictHostKeyChecking=no ${sshUser}@${dockerScanHost} 'tar -C /tmp/checkov-input/${imageName} -xf -'
                 { set +x; } 2>/dev/null; printf '  │  [3/3] IaC güvenlik taraması çalıştırılıyor...\\n'
                 { set -x; } 2>/dev/null

@@ -42,7 +42,13 @@ services:
     push_latest: false              # opsiyonel: :latest tag'i push edilmesin (varsayılan: true)
 
 # ── Servis bazlı opsiyonel alanlar ──────────────────────────────────────────
-#   scan_path                  : Checkov/OSV taramasının kapsayacağı dizin. Belirtilmezse
+#   scan_path                  : Checkov/OSV taramasının kapsayacağı dizin ya da dizin listesi.
+#                                Liste hâli, compose'da kendi servisi olmayan ama kaynağı
+#                                başka bir servisin imajına giren dizinler için gerekli:
+#                                    scan_path:
+#                                      - nginx/
+#                                      - frontend/
+#                                Belirtilmezse
 #                                `path` kullanılır. Build context'i repo kökü olmak zorunda
 #                                olan servislerde (path: '.') gereklidir — aksi halde tarama
 #                                tüm repoyu kapsar ve başka servislerin bağımlılıkları
