@@ -13,10 +13,6 @@ def call() {
         HARBOR_REGISTRY_PATH : '',                          // Harbor proje adı, örn: 'your-project'
         HARBOR_CREDENTIAL_ID : '',                          // örn: 'Harbor_Credentials'
 
-        // ── Deploy ───────────────────────────────────────────────────────────
-        DEPLOY_SSH_USER     : 'your-user',                  // Deploy sunucularindaki SSH kullanicisi
-        DEPLOY_SSH_PORT     : 22,                           // Varsayilan SSH portu
-
         // ── SonarQube ────────────────────────────────────────────────────────
         SONAR_SERVER        : 'your-sonar-server',          // Jenkins SonarQube server adı
 

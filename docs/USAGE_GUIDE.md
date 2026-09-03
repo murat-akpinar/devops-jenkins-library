@@ -78,7 +78,7 @@ services:
 |-------|----------|-------------|
 | `app_name` | ✅ | Application name; deploy path becomes `/app/<app_name>/` |
 | `recipients` | ❌ | Notification emails (`emailTeams` key or direct address) |
-| `environments` | ✅ | `deploy_targets` IP list per environment |
+| `environments` | ✅ | Per-environment `deploy_targets` IP list, `ssh_user`, `ssh_port` |
 | `services[].name` | ✅ | Service name |
 | `services[].path` | ✅ | Service directory (for git diff) |
 | `services[].dockerfile` | ✅ | Dockerfile path |

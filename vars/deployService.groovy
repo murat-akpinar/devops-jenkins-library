@@ -52,9 +52,11 @@ def call(Map config) {
     def dockerComposeFile = config.dockerComposeFile ?: 'docker-compose.yml'
     def dockerComposeRemoteFile = config.dockerComposeRemoteFile ?: dockerComposeFile
     def envFile = config.envFile
-    def CFG = globalConfig()
-    def sshUser = config.sshUser ?: CFG.DEPLOY_SSH_USER ?: 'your-user'
-    def sshPort = config.sshPort ?: CFG.DEPLOY_SSH_PORT ?: 22
+    // SSH kullanıcısı/portu bilerek globalConfig'ten okunmuyor: globalConfig tüm
+    // projelerin paylaştığı tek dosya, bu değerler ise proje ve ortam bazında değişiyor.
+    // Doğru yer services.yml (environments.<ortam>.ssh_user / services[].ssh_user).
+    def sshUser = config.sshUser ?: 'your-user'
+    def sshPort = config.sshPort ?: 22
     def shouldPull = config.shouldPull ?: false
     def imageName = config.imageName ?: serviceName
     def extraFiles = config.extraFiles ?: [] // [{src: 'nginx.conf', dest: '/app/appname/nginx.conf'}, ...]

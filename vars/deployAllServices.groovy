@@ -50,12 +50,15 @@ def call(Map config) {
     def resolveComposeRemoteFile = { svc ->
         env.DOCKER_COMPOSE_REMOTE_FILE?.trim() ?: (svc.docker_compose_remote_file ?: resolveComposeFile(svc))
     }
+    // Öncelik: services.yml servis alanı → Initialize stage'inin environments.<ortam>'dan
+    // yazdığı GLOBAL_* → çağrıdaki config → varsayılan.
+    // globalConfig'e BİLEREK bakılmıyor: orası tüm projelerin paylaştığı tek dosya,
+    // SSH kullanıcısı/portu ise proje ve ortam bazında değişiyor.
     def resolveSshUser = { svc ->
-        svc.ssh_user ?: env.DEPLOY_SSH_USER?.trim() ?: config.sshUser ?: globalConfig().DEPLOY_SSH_USER ?: 'your-user'
+        svc.ssh_user ?: env.GLOBAL_SSH_USER?.trim() ?: config.sshUser ?: 'your-user'
     }
-    // Initialize stage'i environments.<ortam>.ssh_port değerini GLOBAL_SSH_PORT'a yazar
     def resolveSshPort = { svc ->
-        svc.ssh_port ?: (env.GLOBAL_SSH_PORT?.trim() ? env.GLOBAL_SSH_PORT.toInteger() : null) ?: config.sshPort ?: globalConfig().DEPLOY_SSH_PORT ?: 22
+        svc.ssh_port ?: (env.GLOBAL_SSH_PORT?.trim() ? env.GLOBAL_SSH_PORT.toInteger() : null) ?: config.sshPort ?: 22
     }
 
     // Yalnizca deploy EDİLECEK servisler onden çekilir. Önceki sürüm tüm servisleri çekiyordu:

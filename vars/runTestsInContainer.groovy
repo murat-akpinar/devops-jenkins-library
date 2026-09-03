@@ -7,9 +7,8 @@ def call(Map config) {
     def registryPath      = config.registryPath
     def deployIp          = config.deployIp
     def testCommand       = config.testCommand ?: 'echo "Test komutu belirtilmedi"'
-    def CFG               = globalConfig()
-    def sshUser           = config.sshUser ?: CFG.DEPLOY_SSH_USER ?: 'your-user'
-    def sshPort           = config.sshPort ?: CFG.DEPLOY_SSH_PORT ?: 22
+    def sshUser           = config.sshUser ?: 'your-user'
+    def sshPort           = config.sshPort ?: 22
     def nexusCredentialId = config.nexusCredentialId ?: env.NEXUS_CREDENTIAL_ID ?: 'Nexus_Credentials'
 
     echo "🧪 [${serviceName}] Testler container içinde çalıştırılıyor..."

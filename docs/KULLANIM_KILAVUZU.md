@@ -78,7 +78,7 @@ services:
 |------|---------|----------|
 | `app_name` | ✅ | Uygulama adı; deploy path `/app/<app_name>/` olarak belirlenir |
 | `recipients` | ❌ | Bildirim e-postaları (`emailTeams` anahtarı veya doğrudan adres) |
-| `environments` | ✅ | Ortam başına `deploy_targets` IP listesi |
+| `environments` | ✅ | Ortam başına `deploy_targets` IP listesi, `ssh_user`, `ssh_port` |
 | `services[].name` | ✅ | Servis adı |
 | `services[].path` | ✅ | Servis dizini (git diff için) |
 | `services[].dockerfile` | ✅ | Dockerfile yolu |

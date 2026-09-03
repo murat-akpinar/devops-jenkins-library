@@ -43,6 +43,9 @@ pipeline {
                         ? envConfig.deploy_targets.collect { it.toString().trim() }.join(',')
                         : ''
                     env.GLOBAL_SSH_PORT = envConfig.ssh_port?.toString() ?: '22'
+                    // Ortam bazlı SSH kullanıcısı. globalConfig'te tutulmaz — orası tüm
+                    // projelerin paylaştığı dosya, bu değer proje/ortam bazında değişir.
+                    env.GLOBAL_SSH_USER = envConfig.ssh_user?.toString() ?: 'your-user'
                     echo "ℹ️ Kullanılacak VERSION: ${env.VERSION}"
                     echo "ℹ️ Ortam: ${params.ENVIRONMENT}"
                     echo "ℹ️ APP: ${env.APP}"
@@ -176,7 +179,8 @@ pipeline {
                                 registryPath     : env.REGISTRY_PATH,
                                 deployIp         : testTarget,
                                 testCommand      : svc.test_command,
-                                sshPort          : svc.ssh_port ?: env.GLOBAL_SSH_PORT?.toInteger() ?: 22
+                                sshPort          : svc.ssh_port ?: env.GLOBAL_SSH_PORT?.toInteger() ?: 22,
+                                sshUser          : svc.ssh_user ?: env.GLOBAL_SSH_USER
                             ])
                         } else if (doFlag(key) == '1' && !testTarget) {
                             echo "⏭️ [${svc.name}]: test hedef IP yok → test stage'i atlanıyor."
