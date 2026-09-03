@@ -55,9 +55,16 @@
 > (`npm audit fix` ile giderildi), nginx'in tüm repoyu tarayıp frontend'i çift sayması
 > (`scan_path` eklendi), dashboard'da bayat kayıtların gate'i kilitlemesi (dedup + elle temizlik).
 >
-> **Hâlâ gerçek koşuda görülmeyen:** `deployAllServices`'in compose aşaması ve `dockerCleanup`
-> (log her seferinde Deploy'da kesildi), `sonarQubeAnalysis`/`sonarQubeQualityGate`
-> (test Jenkinsfile'ı çağırmıyor).
+> **`deployAllServices` uçtan uca doğrulandı** (2026-09-04): ön çekim → `.env` merge → compose
+> dosyası tek kez kopyalama → `up -d --wait --wait-timeout 180` → container'lar `Healthy`.
+> `docker compose version --short` ile sürüm tespiti çalıştı (host: 5.2.0 → `--wait` eklendi).
+> `runCompose` mantığı doğru: backend'de `⏭️ runCompose=false`, compose yalnızca son serviste
+> (nginx) çalıştı; compose dosyası ilk serviste kopyalanıp ikincisinde atlandı.
+> `scan_path` liste hâli de doğrulandı: `tar -C $WORKSPACE ... -cf - nginx frontend`, OSV
+> `frontend/package-lock.json`'daki 201 paketi taradı.
+>
+> **Hâlâ görülmeyen:** `dockerCleanup` (log Deploy'da kesildi),
+> `sonarQubeAnalysis`/`sonarQubeQualityGate` (test Jenkinsfile'ı çağırmıyor).
 
 **Uygularken planın yanlış çıktığı yerler:**
 - **Madde 1:** Planda "`\$NEXUS_PASS` diye kaçır" yazıyordu; yetersizmiş — o durumda değeri
