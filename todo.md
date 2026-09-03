@@ -36,8 +36,8 @@
   çalışmayabilir. Bu, test edilmeden yapılabilecek bir değişiklik değil ve bu makinede
   Groovy/JDK olmadığı için hiçbir şey çalıştırılamıyor.
 
-> ✅ **Gerçek pipeline'da uçtan uca doğrulandı.** vaultscan projesi (backend/frontend/nginx)
-> yerel test ortamında (Nexus 192.168.1.134, DockerScan/deploy 192.168.1.131) defalarca
+> ✅ **Gerçek pipeline'da uçtan uca doğrulandı.** Üç servisli bir proje (Go backend,
+> React frontend, nginx) iç test ortamında (Nexus + DockerScan + tek deploy host) defalarca
 > koşturuldu. Son durum: checkov A/C/A, OSV A, Trivy C, deploy çalışıyor.
 >
 > **Testte ortaya çıkan ve düzeltilen regresyonlar** (hepsi bu çalışmada benim eklediklerim):
@@ -68,7 +68,7 @@
 > yerine geçtiği için build cache artık her koşuda yok edilmiyor.
 >
 > **Nihai durum:** Checkov B, OSV A, Trivy A — üçü de C eşiğini geçiyor, pipeline yeşil.
-> Deploy host'unda container'lar `vaultscan_backend`/`vaultscan_nginx` adlarıyla `Healthy`.
+> Deploy host'undaki container'lar `Healthy` durumda ayağa kalktı.
 > Dashboard kayıt sayısı 27 → 6'ya düştü (export mount'u `:rw` yapılınca backend'in kendi
 > retention temizliği ilk kez çalışabildi).
 >
