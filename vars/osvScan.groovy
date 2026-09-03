@@ -81,6 +81,12 @@ def call(String tag) {
                 echo "  └─ ✅ [${imageName}:${tag}] tamamlandı — bulgu yok"
             } else if (rc == 1) {
                 echo "  └─ ⚠️  [${imageName}:${tag}] tamamlandı — bulgu var (karar quality gate'de)"
+            } else if (rc == 128) {
+                // OSV-Scanner'in "No package sources found" çıkış kodu. Taranacak bağımlılık
+                // manifesti (go.mod, package-lock.json, requirements.txt...) olmayan servisler
+                // için normaldir — örn. yalnızca Dockerfile ve conf içeren bir nginx servisi.
+                // Bu bir hata değil; o servisin bağımlılığı yoktur, imaj katmanı zaten Trivy'nin işi.
+                echo "  └─ ⏭️  [${imageName}:${tag}] taranacak bağımlılık manifesti yok → atlandı"
             } else {
                 error "tarama çalıştırılamadı (exit ${rc})"
             }
