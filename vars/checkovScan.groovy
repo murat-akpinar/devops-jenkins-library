@@ -31,7 +31,12 @@ def call(String tag) {
     servicesConfig.services.each { svc ->
         def key         = svc.name?.trim()?.toUpperCase()
         def imageName   = svc.image_name ?: svc.name
-        def servicePath = svc.path?.replaceAll('/+$', '') ?: svc.name
+        // Tarama yolu build yolundan AYRI olabilir. nginx gibi servisler, Dockerfile'ları
+        // repo kökünü build context'i olarak gerektirdiği için `path: '.'` kullanır; o zaman
+        // tarama tüm repoyu kapsar ve diğer servislerin bağımlılıkları İKİNCİ KEZ sayılır
+        // (frontend'in zafiyetleri nginx'in notuna da yansır, proje notu şişer).
+        // scan_path tanımlıysa tarama yalnızca o dizini kapsar; tanımlı değilse path kullanılır.
+        def servicePath = (svc.scan_path ?: svc.path)?.toString()?.replaceAll('/+$', '') ?: svc.name
 
         if (env."DO_${key}" != '1') {
             echo "  ⏭️  [${svc.name}]: build edilmedi → tarama atlanıyor."

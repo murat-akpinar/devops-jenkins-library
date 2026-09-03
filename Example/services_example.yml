@@ -42,6 +42,11 @@ services:
     push_latest: false              # opsiyonel: :latest tag'i push edilmesin (varsayılan: true)
 
 # ── Servis bazlı opsiyonel alanlar ──────────────────────────────────────────
+#   scan_path                  : Checkov/OSV taramasının kapsayacağı dizin. Belirtilmezse
+#                                `path` kullanılır. Build context'i repo kökü olmak zorunda
+#                                olan servislerde (path: '.') gereklidir — aksi halde tarama
+#                                tüm repoyu kapsar ve başka servislerin bağımlılıkları
+#                                ikinci kez sayılıp proje notunu şişirir.
 #   target                     : multi-stage Dockerfile'da build edilecek stage (--target)
 #   push_latest                : false → :latest tag'i push edilmez (build cache'i zayıflar)
 #   deploy_targets             : bu servise özel hedef IP listesi (environments'ı ezer)
