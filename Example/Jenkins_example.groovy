@@ -42,10 +42,13 @@ pipeline {
                     env.GLOBAL_TARGETS = envConfig.deploy_targets
                         ? envConfig.deploy_targets.collect { it.toString().trim() }.join(',')
                         : ''
-                    env.GLOBAL_SSH_PORT = envConfig.ssh_port?.toString() ?: '22'
-                    // Ortam bazlı SSH kullanıcısı. globalConfig'te tutulmaz — orası tüm
-                    // projelerin paylaştığı dosya, bu değer proje/ortam bazında değişir.
-                    env.GLOBAL_SSH_USER = envConfig.ssh_user?.toString() ?: 'your-user'
+                    // SSH kullanıcısı ve portu services.yml'de environments.<ortam> altında
+                    // tanımlanır. Burada VARSAYILAN TUTULMAZ: aynı varsayılanın hem burada hem
+                    // kütüphanede yaşaması, birini değiştirince diğerinin sessizce geride
+                    // kalması demek. Tanımlı değilse boş bırakılır ve kütüphanenin kendi
+                    // varsayılanı devreye girer.
+                    env.GLOBAL_SSH_PORT = envConfig.ssh_port?.toString() ?: ''
+                    env.GLOBAL_SSH_USER = envConfig.ssh_user?.toString() ?: ''
                     echo "ℹ️ Kullanılacak VERSION: ${env.VERSION}"
                     echo "ℹ️ Ortam: ${params.ENVIRONMENT}"
                     echo "ℹ️ APP: ${env.APP}"
@@ -179,7 +182,7 @@ pipeline {
                                 registryPath     : env.REGISTRY_PATH,
                                 deployIp         : testTarget,
                                 testCommand      : svc.test_command,
-                                sshPort          : svc.ssh_port ?: env.GLOBAL_SSH_PORT?.toInteger() ?: 22,
+                                sshPort          : svc.ssh_port ?: globalSshPort(),
                                 sshUser          : svc.ssh_user ?: env.GLOBAL_SSH_USER
                             ])
                         } else if (doFlag(key) == '1' && !testTarget) {
@@ -254,6 +257,11 @@ pipeline {
 
 // Helpers
 def normalizeKey(String name) { name?.trim()?.toUpperCase() }
+// GLOBAL_SSH_PORT tanımlı değilse boştur; boş string'e toInteger() çağırmak
+// NumberFormatException atar. null döndürülür ki kütüphane kendi varsayılanına düşsün.
+def globalSshPort() {
+    env.GLOBAL_SSH_PORT?.trim() ? env.GLOBAL_SSH_PORT.toInteger() : null
+}
 def resolveImageName(String name, String imageName) { imageName ?: name }
 def setTagExists(String key, String value) { env."TAG_EXISTS_${key}" = value }
 def tagExists(String key) { env."TAG_EXISTS_${key}" == '1' }
