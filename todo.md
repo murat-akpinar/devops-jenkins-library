@@ -63,8 +63,18 @@
 > `scan_path` liste hâli de doğrulandı: `tar -C $WORKSPACE ... -cf - nginx frontend`, OSV
 > `frontend/package-lock.json`'daki 201 paketi taradı.
 >
-> **Hâlâ görülmeyen:** `dockerCleanup` (log Deploy'da kesildi),
-> `sonarQubeAnalysis`/`sonarQubeQualityGate` (test Jenkinsfile'ı çağırmıyor).
+> **`dockerCleanup` de doğrulandı** (2026-09-04): dangling imaj temizliği + services.yml'e
+> göre servis başına eski tag temizliği (`korunan: test-v1.0`) çalıştı. `docker system prune -af`
+> yerine geçtiği için build cache artık her koşuda yok edilmiyor.
+>
+> **Nihai durum:** Checkov B, OSV A, Trivy A — üçü de C eşiğini geçiyor, pipeline yeşil.
+> Deploy host'unda container'lar `vaultscan_backend`/`vaultscan_nginx` adlarıyla `Healthy`.
+> Dashboard kayıt sayısı 27 → 6'ya düştü (export mount'u `:rw` yapılınca backend'in kendi
+> retention temizliği ilk kez çalışabildi).
+>
+> **Kütüphanede hâlâ gerçek koşuda görülmeyen tek şey:** `sonarQubeAnalysis` /
+> `sonarQubeQualityGate` — test Jenkinsfile'ı bu iki fonksiyonu çağırmıyor ve test
+> ortamında SonarQube sunucusu tanımlı değil (`globalConfig`'te SONAR_SERVER yok).
 
 **Uygularken planın yanlış çıktığı yerler:**
 - **Madde 1:** Planda "`\$NEXUS_PASS` diye kaçır" yazıyordu; yetersizmiş — o durumda değeri
