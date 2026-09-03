@@ -56,12 +56,30 @@ def call(String tag) {
                 ssh ${SSH_OPTS} -o StrictHostKeyChecking=no ${sshUser}@${dockerScanHost} "find /tmp/osv-input/${imageName} -name '*.json' -print0 | xargs -r -0 sed -i '1s/^\\xef\\xbb\\xbf//'"
                 { set +x; } 2>/dev/null; printf '  │  [4/4] Bağımlılık taraması çalıştırılıyor...\\n'
                 { set -x; } 2>/dev/null
+            """
+
+            def rc = sh(returnStatus: true, script: """
                 ssh ${SSH_OPTS} -o StrictHostKeyChecking=no ${sshUser}@${dockerScanHost} '${scriptPath} --image ${imageName} --tag ${tag} --project ${appName}'
+            """)
+
+            // Uzak girdiyi her durumda temizle: kaynak kod tarama sunucusunda birikmesin.
+            sh """
                 { set +x; } 2>/dev/null; printf '  │  Uzak girdi temizleniyor...\\n'
                 { set -x; } 2>/dev/null
                 ssh ${SSH_OPTS} -o StrictHostKeyChecking=no ${sshUser}@${dockerScanHost} 'rm -rf /tmp/osv-input/${imageName}' || true
             """
-            echo "  └─ ✅ [${imageName}:${tag}] tamamlandı"
+
+            // Tetikleyici script bulgu bulunca 1 dönüyor — tarama BAŞARILI, sadece bulgu var.
+            // Pass/fail kararı quality gate'in işi. 2 ve üzeri gerçek hata (script çalışmadı,
+            // ssh koptu, dizin yok…): önceki kabuk sözdizimi hatası da exit 2 vermişti.
+            if (rc == 0) {
+                echo "  └─ ✅ [${imageName}:${tag}] tamamlandı — bulgu yok"
+            } else if (rc == 1) {
+                echo "  └─ ⚠️  [${imageName}:${tag}] tamamlandı — bulgu var (karar quality gate'de)"
+            } else {
+                error "tarama çalıştırılamadı (exit ${rc})"
+            }
+
         } catch (e) {
             echo "  └─ ❌ [${imageName}:${tag}] başarısız: ${e.message}"
             if (!softFail) { hasError = true }

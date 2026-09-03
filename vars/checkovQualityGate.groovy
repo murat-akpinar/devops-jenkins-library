@@ -82,6 +82,29 @@ def call(String projectName, String grade = 'C') {
     def totalFailed = 0
     def worstGrade  = 'A'
 
+
+    // Dashboard aynı (servis, tag) için birden fazla kayıt tutabiliyor: her yeni koşu bir
+    // kayıt daha ekliyor. Hepsi değerlendirilirse ESKİ bir koşunun sonucu da nota giriyor
+    // (örneğin taramanın patladığı bir kosudan kalan "0 bulgu" kaydı). Servis başına
+    // yalnızca SON kayıt alınır; kayıtlar zaman damgasi taşıyorsa ona göre, taşımıyorsa
+    // dizideki son görünüme göre.
+    def latestByService = [:]
+    scans.each { sc ->
+        def svcKey = (sc?.serviceName ?: '?').toString()
+        def prev = latestByService[svcKey]
+        if (prev == null) {
+            latestByService[svcKey] = sc
+        } else {
+            def a = (sc?.timestamp ?: sc?.scannedAt ?: sc?.date ?: '').toString()
+            def b = (prev?.timestamp ?: prev?.scannedAt ?: prev?.date ?: '').toString()
+            latestByService[svcKey] = (a && b) ? ((a >= b) ? sc : prev) : sc
+        }
+    }
+    if (latestByService.size() < scans.size()) {
+        echo "  ♻️  Mükerrer kayıt: ${scans.size()} → ${latestByService.size()} (servis başına son tarama)"
+    }
+    scans = latestByService.values() as List
+
     echo "  ┌─ Servis Raporları"
     scans.each { scan ->
         def svcFailed = scan.failed ?: 0
