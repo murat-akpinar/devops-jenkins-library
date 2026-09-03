@@ -50,7 +50,7 @@ def call(String tag) {
                 # dahil) tarama sunucusuna gönderiyordu; hem yavaştı hem de servis .env'i
                 # uzak /tmp'de kalıyordu. tar ile filtrelenip tek akışta gönderiliyor.
                 tar -C \${WORKSPACE}/${servicePath} --exclude='.git' --exclude='.svn' --exclude='node_modules' --exclude='vendor' --exclude='bower_components' --exclude='dist' --exclude='build' --exclude='out' --exclude='target' --exclude='bin' --exclude='obj' --exclude='__pycache__' --exclude='.venv' --exclude='venv' --exclude='.tox' --exclude='.mypy_cache' --exclude='.pytest_cache' --exclude='.terraform' --exclude='.gradle' --exclude='.idea' --exclude='.vscode' --exclude='*.env' --exclude='.env' --exclude='.env.*' -cf - . |
-                  | ssh ${SSH_OPTS} -o StrictHostKeyChecking=no ${sshUser}@${dockerScanHost} 'tar -C /tmp/osv-input/${imageName} -xf -'
+                  ssh ${SSH_OPTS} -o StrictHostKeyChecking=no ${sshUser}@${dockerScanHost} 'tar -C /tmp/osv-input/${imageName} -xf -'
                 { set +x; } 2>/dev/null; printf '  │  [3/4] JSON encoding düzeltiliyor (BOM temizleniyor)...\\n'
                 { set -x; } 2>/dev/null
                 ssh ${SSH_OPTS} -o StrictHostKeyChecking=no ${sshUser}@${dockerScanHost} "find /tmp/osv-input/${imageName} -name '*.json' -print0 | xargs -r -0 sed -i '1s/^\\xef\\xbb\\xbf//'"

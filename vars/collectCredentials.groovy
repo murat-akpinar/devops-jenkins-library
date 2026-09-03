@@ -37,6 +37,10 @@ def call() {
     // (AWS_S3_SECRET, DB2_PASSWORD gibi) SESSİZCE ATLIYORDU — o credential'lar deploy
     // sunucusundaki .env dosyasına hiç yazılmıyordu. Artık toplanıyorlar.
     def dump = sh(returnStdout: true, script: '''
+        # Jenkins `sh` adımı varsayılan olarak `set -x` ile çalışır. Bu döngü her değişkenin
+        # DEĞERİNİ yazdırdığı için trace açık kalırsa tüm env değerleri (JENKINS_SECRET dahil)
+        # base64'lü halde build log'una düşer ve base64 maskeleme kapsamına girmez.
+        { set +x; } 2>/dev/null
         for k in $(env | grep -E '^[A-Z_][A-Z_0-9]*=' | cut -d= -f1 | sort -u); do
             printf '%s\\t%s\\n' "$k" "$(printenv "$k" | base64 | tr -d '\\n')"
         done
