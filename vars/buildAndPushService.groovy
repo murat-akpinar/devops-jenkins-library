@@ -92,14 +92,24 @@ def call(Map config) {
         ${secretSetup}
 
         ${useNexusAuth ? """
-        # Agent'ın Nexus oturumu. Önceden bu adım yoktu ve agent'in pipeline dışında (elle ya da
-        # provisioning ile) login edilmiş olması varsayılıyordu; yeni bir agent eklendiğinde push
-        # "unauthorized" ile patlıyor ve sebebi belirsiz görünüyordu. Ayrıca --cache-from özel
-        # registry'den cache manifest'i çekeceği için bu oturuma ihtiyaç duyar.
+        # Agent'ın Nexus oturumu. Bu adım BEST-EFFORT: başarısız olursa build DURMAZ.
+        # Önceden bu adım hiç yoktu ve agent'ın pipeline dışında (elle ya da provisioning
+        # ile) login edilmiş olması varsayılıyordu. Adımı ZORUNLU yapmak, Docker realm'i
+        # kapalı ya da kullanıcısının docker repo yetkisi olmayan kurulumlarda ÇALIŞAN
+        # pipeline'ları kırıyor. Bu yüzden yalnızca deneniyor; gerçek doğrulama noktası
+        # aşağıdaki `docker push` adımıdır. Login başarılıysa --cache-from da özel
+        # registry'den cache manifest'i çekebilir.
         # printf bir kabuk yerleşiği olduğu için şifre hiçbir process listesinde görünmez.
-        { set +x; } 2>/dev/null; printf '  ┌─[1/5] Nexus registry login...\n'
-        printf '%s' "\$NEXUS_REPO_PASS" | docker login ${nexusRegistry} -u "\$NEXUS_REPO_USER" --password-stdin
-        printf '  └─ ✅ Login tamamlandı\n'; { set -x; } 2>/dev/null
+        { set +x; } 2>/dev/null; printf '  ┌─[1/5] Nexus registry login deneniyor...\\n'
+        if printf '%s' "\$NEXUS_REPO_PASS" | docker login ${nexusRegistry} -u "\$NEXUS_REPO_USER" --password-stdin; then
+            printf '  └─ ✅ Login tamamlandı\\n'
+        else
+            printf '  └─ ⚠️  Login başarısız — mevcut oturum/anonim erişimle devam ediliyor.\\n'
+            printf '       Push da başarısız olursa Nexus > Security > Realms altında\\n'
+            printf '       "Docker Bearer Token Realm" aktif mi ve kullanıcının ilgili\\n'
+            printf '       docker repository yetkisi var mı kontrol edin.\\n'
+        fi
+        { set -x; } 2>/dev/null
         """ : ""}
 
         { set +x; } 2>/dev/null; printf '  ┌─[2/4] Docker image build ediliyor...\n'; { set -x; } 2>/dev/null
