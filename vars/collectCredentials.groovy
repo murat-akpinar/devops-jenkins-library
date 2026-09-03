@@ -7,7 +7,11 @@ def call() {
 
     def systemVarPrefixes = ['DO_', 'TAG_EXISTS_', 'JENKINS_', 'BUILD_', 'JOB_', 'NODE_', 'HUDSON_', 'GIT_', 'BRANCH_', 'CHANGE_', 'RUN_', 'STAGE_', 'SYSTEMD_',
                      // Kütüphanenin kendi geçici değişkenleri — asla credential değildir
-                     'DEPLOY_', 'DS_', 'PS_', 'RT_']
+                     'DEPLOY_', 'DS_', 'PS_', 'RT_',
+                     // Jenkinsfile'ın Initialize adımında set ettiği pipeline değişkenleri.
+                     // Tek tek listelemek yerine prefix: yeni bir GLOBAL_* eklendiğinde
+                     // denylist'i güncellemeyi unutmak sızıntıya yol açıyordu.
+                     'GLOBAL_', 'AGENT_']
     def systemVars = ['WORKSPACE', 'PWD', 'PATH', 'HOME', 'USER', 'SHELL', 'VERSION', 'APP',
                      'IP1', 'IP2', 'IP3', 'IP4', 'DEPLOY_TARGETS', 'PULL_EXISTING',
                      'NEXUS_URL', 'NEXUS_REGISTRY_URL', 'REGISTRY_PATH', 'SONAR_SERVER',
@@ -19,7 +23,12 @@ def call() {
                      'GLOBAL_TARGETS', 'GLOBAL_SSH_PORT', 'RECIPIENT_EMAIL', 'SERVICES_FILE',
                      'DOCKER_COMPOSE_FILE', 'DOCKER_COMPOSE_REMOTE_FILE', 'DOTNET_ROOT',
                      'SYSTEMD_EXEC_PID', 'JOURNAL_STREAM', 'MEMORY_PRESSURE_WATCH', 'MEMORY_PRESSURE_WRITE',
-                     'INVOCATION_ID', 'JAVA_HOME']
+                     'INVOCATION_ID', 'JAVA_HOME',
+                     // Agent/container ortam değişkenleri. Bunlar deploy sunucusundaki .env'e
+                     // yazılırsa servisin kendi .env'indeki değeri EZİYOR: extraEnvVars yerel
+                     // .env merge'ünden SONRA uygulanıyor. Örn. agent'ın TZ'si projenin
+                     // TZ'sinin yerine geçiyordu.
+                     'HOSTNAME', 'TZ', 'HOSTTYPE', 'PS1', 'PS2', 'IFS']
 
     def credentialsMap = [:]
 
