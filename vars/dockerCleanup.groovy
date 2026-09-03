@@ -4,6 +4,10 @@
 def call(Map config = [:]) {
     def keepVersion = (config.keepVersion?.toString()?.trim()) ?: env.VERSION?.trim()
     def servicesFile = config.servicesFile ?: (env.SERVICES_FILE?.trim() ?: 'services.yml')
+    // BuildKit cache'ini silmek varsayilan olarak KAPALI: buildAndPushService --cache-from ile
+    // cache'i calistirmaya ugrasirken burada her build'de silmek dogrudan celisiyordu.
+    // Disk baskisi olan agent'lar acabilir.
+    def pruneBuilder = (config.pruneBuilder != null) ? (config.pruneBuilder.toString() == 'true') : false
     def bar = '═' * 60
     def t0 = System.currentTimeMillis()
 
@@ -15,10 +19,12 @@ def call(Map config = [:]) {
     // `prune -af` tüm kullanılmayan imajları siliyordu → Deploy aşaması, Nexus'tan henüz
     // çekmediği imajları kaybedip patlıyordu. Sadece dangling imaj + build cache temizlenir,
     // tag'li imajlara dokunulmaz. Tam temizlik isteniyorsa bu adımı Deploy'dan SONRA çağırın.
-    sh '''
-        docker image prune -f || true
-        docker builder prune -f || true
-    '''
+    sh 'docker image prune -f || true'
+
+    if (pruneBuilder) {
+        echo "  🗑️  pruneBuilder=true → BuildKit cache temizleniyor (sonraki build daha yavaş olacak)"
+        sh 'docker builder prune -f || true'
+    }
 
     // keepVersion verilirse: services.yml okunup HER servisin kendi imaj adı otomatik bulunur ve
     // şu an build edilen version dışındaki eski tag'leri silinir. Proje ismini Jenkinsfile'a elle

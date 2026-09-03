@@ -30,7 +30,9 @@ def call(String projectName, String grade = 'C') {
 
     def responseText = ''
     for (int attempt = 1; attempt <= retryCount; attempt++) {
-        sleep(retryDelay)
+        // Once sorgula, sonra bekle. Onceki surumde sleep dongunun basindaydi ve sonuc
+        // hazir olsa bile her gate koşulsuz olarak retryDelay kadar bekliyordu.
+        if (attempt > 1) { sleep(retryDelay) }
         responseText = sh(
             script: "ssh -o StrictHostKeyChecking=no ${sshUser}@${dockerScanHost} \"curl -sf 'http://localhost:${dashboardPort}/api/osv?project=${projectName}'\" || true",
             returnStdout: true

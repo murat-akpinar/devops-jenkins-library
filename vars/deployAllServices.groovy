@@ -58,8 +58,17 @@ def call(Map config) {
         svc.ssh_port ?: (env.GLOBAL_SSH_PORT?.trim() ? env.GLOBAL_SSH_PORT.toInteger() : null) ?: config.sshPort ?: 22
     }
 
-    echo "📥 Tüm servis imajları önceden Nexus'tan çekiliyor..."
+    // Yalnizca deploy EDILECEK servisler onden cekilir. Onceki surum tum servisleri cekiyordu:
+    //  - degismemis servisin imaji bosuna indiriliyordu (ustelik pullService once `docker rmi` ile
+    //    dogru duran yerel kopyayi siliyor, yani her seferinde bastan cekiyordu),
+    //  - pullService hata durumunda `error` attigi icin, o VERSION icin hic push edilmemis bir
+    //    servis tum deploy'u dusuruyordu.
+    echo "📥 Deploy edilecek servis imajları önceden Nexus'tan çekiliyor..."
     servicesConfig.services.each { svc ->
+        if (!isDeployingSvc(svc)) {
+            echo "⏭️ [${svc.name}]: değişmedi → ön çekim atlanıyor."
+            return
+        }
         def imageName = resolveImageName(svc.name, svc.image_name)
         resolveTargets(svc).each { ip ->
             pullService([
@@ -115,7 +124,10 @@ def call(Map config) {
                 sshUser                : resolveSshUser(svc),
                 sshPort                : resolveSshPort(svc),
                 runCompose             : (lastDeployingSvcByIp[ip] == svc),
-                pruneImages            : pruneImages
+                pruneImages            : pruneImages,
+                composeWait            : (config.composeWait != null) ? config.composeWait : true,
+                composeWaitTimeout     : config.composeWaitTimeout ?: 180,
+                pruneDangling          : (config.pruneDangling != null) ? config.pruneDangling : true
             ])
         }
     }

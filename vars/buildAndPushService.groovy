@@ -68,9 +68,14 @@ def call(Map config) {
     // multi-stage Dockerfile'da yalnızca belirtilen stage build edilir (ör. target: 'runtime')
     def targetArg = target?.toString()?.trim() ? "--target ${target} " : ""
 
+    // BUILDKIT_INLINE_CACHE=1 olmadan --cache-from sessizce ise yaramiyor: push edilen imajlar
+    // inline cache metadata'si tasimadigi icin BuildKit registry'den okuyacak bir sey bulamiyor.
+    // Bu build-arg ile :latest artik cache metadata'si tasiyor ve --cache-from gercekten calisiyor.
+    def cacheArgs = "--cache-from ${cacheFrom} --build-arg BUILDKIT_INLINE_CACHE=1 "
+
     def dockerBuildCommand = useNexusAuth
-        ? "DOCKER_BUILDKIT=1 docker build --cache-from ${cacheFrom} ${targetArg}--secret id=nexus_user,src=\"\$_NEXUS_USER_FILE\" --secret id=nexus_pass,src=\"\$_NEXUS_PASS_FILE\" -t ${serviceName}:${version} -f ${dockerfile} ."
-        : "DOCKER_BUILDKIT=1 docker build --cache-from ${cacheFrom} ${targetArg}-t ${serviceName}:${version} -f ${dockerfile} ."
+        ? "DOCKER_BUILDKIT=1 docker build ${cacheArgs}${targetArg}--secret id=nexus_user,src=\"\$_NEXUS_USER_FILE\" --secret id=nexus_pass,src=\"\$_NEXUS_PASS_FILE\" -t ${serviceName}:${version} -f ${dockerfile} ."
+        : "DOCKER_BUILDKIT=1 docker build ${cacheArgs}${targetArg}-t ${serviceName}:${version} -f ${dockerfile} ."
 
     def shellScript = """
         set -e
@@ -85,6 +90,17 @@ def call(Map config) {
         """ : ""}
 
         ${secretSetup}
+
+        ${useNexusAuth ? """
+        # Agent'in Nexus oturumu. Onceden bu adim yoktu ve agent'in pipeline disinda (elle ya da
+        # provisioning ile) login edilmis olmasi varsayiliyordu; yeni bir agent eklendiginde push
+        # "unauthorized" ile patliyor ve sebebi belirsiz gorunuyordu. Ayrica --cache-from ozel
+        # registry'den cache manifest'i cekecegi icin bu oturuma ihtiyac duyar.
+        # printf bir kabuk yerlesigi oldugu icin sifre hicbir process listesinde gorunmez.
+        { set +x; } 2>/dev/null; printf '  ┌─[1/5] Nexus registry login...\n'
+        printf '%s' "\$NEXUS_REPO_PASS" | docker login ${nexusRegistry} -u "\$NEXUS_REPO_USER" --password-stdin
+        printf '  └─ ✅ Login tamamlandı\n'; { set -x; } 2>/dev/null
+        """ : ""}
 
         { set +x; } 2>/dev/null; printf '  ┌─[2/4] Docker image build ediliyor...\n'; { set -x; } 2>/dev/null
         cd ${servicePath}

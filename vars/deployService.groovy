@@ -2,6 +2,41 @@ import groovy.transform.Field
 
 @Field Set executedComposeKeys = [] as Set
 @Field Set copiedComposeKeys = [] as Set
+// Host basina bir kez okunan `docker compose version` ciktisi (build omru boyunca cache'lenir)
+@Field Map composeVersionByHost = [:]
+
+// "v2.24.5" -> 2024005 : karsilastirilabilir tek sayi. Parse edilemezse 0.
+def versionKey(String v) {
+    def parts = (v ?: '').replaceAll('^[vV]', '').split('[^0-9]+').findAll { it }
+    def a = parts.size() > 0 ? parts[0].toInteger() : 0
+    def b = parts.size() > 1 ? parts[1].toInteger() : 0
+    def c = parts.size() > 2 ? parts[2].toInteger() : 0
+    return a * 1000000 + b * 1000 + c
+}
+
+// `docker compose up --wait` Compose >= 2.1.1, `--wait-timeout` >= 2.17 gerektiriyor.
+// Daha eski bir host'ta bu bayraklar "unknown flag" ile HER deploy'u kirardi. Host'un surumu
+// bir kez okunup, bayraklar yalnizca desteklendiginde ekleniyor; desteklenmiyorsa sessizce
+// eski davranisa (duz `up -d`) donuluyor. Surum okunamazsa da guvenli tarafta kaliniyor.
+def resolveComposeWaitArgs(String sshUser, def sshPort, String deployIp, def waitTimeout) {
+    def hostKey = "${sshUser}@${deployIp}:${sshPort}"
+    if (!composeVersionByHost.containsKey(hostKey)) {
+        def detected = sh(
+            script: "ssh -p ${sshPort} -o ConnectTimeout=20 ${sshUser}@${deployIp} 'docker compose version --short 2>/dev/null' || true",
+            returnStdout: true
+        ).trim()
+        composeVersionByHost[hostKey] = detected
+        if (detected) {
+            echo "  ℹ️  ${deployIp} docker compose sürümü: ${detected}"
+        } else {
+            echo "  ⚠️  ${deployIp} docker compose sürümü okunamadı → --wait kullanılmayacak"
+        }
+    }
+    def key = versionKey(composeVersionByHost[hostKey])
+    if (key >= versionKey('2.17.0')) { return " --wait --wait-timeout ${waitTimeout}" }
+    if (key >= versionKey('2.1.1'))  { return " --wait" }
+    return ""
+}
 
 def call(Map config) {
     def serviceName = config.serviceName
@@ -26,6 +61,11 @@ def call(Map config) {
     def pruneImages = (config.pruneImages != null ? config.pruneImages.toString() == 'true' : false)
     // `docker compose up --wait` için timeout (sn). Migration'ı uzun süren servisler yanlışlıkla fail olmasın diye geniş tutuldu.
     def composeWaitTimeout = config.composeWaitTimeout ?: 180
+    // `--wait`, isini yapip cikan (exit 0) container'larda hata dondurur — migration/init
+    // container'i olan projeler bunu kapatmak icin composeWait: false verir.
+    def composeWait = (config.composeWait != null) ? (config.composeWait.toString() == 'true') : true
+    // Compose sonrasi dangling imaj temizligi. Host geneli calisir; kapatmak icin false.
+    def pruneDangling = (config.pruneDangling != null) ? (config.pruneDangling.toString() == 'true') : true
     def composeOnceKey = config.composeOnceKey ?: "${appName}@${deployIp}:${dockerComposeRemoteFile}"
     def shouldCopyComposeNow = !copiedComposeKeys.contains(composeOnceKey)
     def shouldRunComposeNow = runCompose && !executedComposeKeys.contains(composeOnceKey)
@@ -331,18 +371,24 @@ def call(Map config) {
         // "up -d" zaten sadece config/image'i değişen container'ı yeniden oluşturur.
         // Sabit "sleep 15s" yerine "--wait": container'lar (healthcheck tanımlıysa healthy, yoksa
         // running) olana kadar beklenir; olmazsa komut hata döner ve Jenkins adımı durur.
+        def waitArgs = composeWait ? resolveComposeWaitArgs(sshUser, sshPort, deployIp, composeWaitTimeout) : ""
+        if (composeWait && !waitArgs) {
+            echo "  ⚠️  --wait desteklenmiyor → `up -d` sonrası sağlık beklenmeyecek"
+        }
         sh """
             ssh -p ${sshPort} -o ConnectTimeout=20 ${sshUser}@${deployIp} "sudo chown -R ${sshUser}:${sshUser} /app/${appName}/"
-            ssh -p ${sshPort} -o ConnectTimeout=20 ${sshUser}@${deployIp} "cd /app/${appName} && docker compose -f ${dockerComposeRemoteFile} ${shouldCreateEnv ? '--env-file .env' : ''} up -d --wait --wait-timeout ${composeWaitTimeout}"
+            ssh -p ${sshPort} -o ConnectTimeout=20 ${sshUser}@${deployIp} "cd /app/${appName} && docker compose -f ${dockerComposeRemoteFile} ${shouldCreateEnv ? '--env-file .env' : ''} up -d${waitArgs}"
             ssh -p ${sshPort} -o ConnectTimeout=20 ${sshUser}@${deployIp} "cd /app/${appName}; docker compose logs --tail=100"
         """
 
         // Aynı tag (ör. test-v1.0) tekrar deploy edildiğinde eski container yeni imaja geçer ve eski
         // imaj hiçbir tag'e/container'a bağlı kalmaz (dangling) → burada temizlenir. "-a" YOK: başka
         // bir tag'e bağlı imajlar (elle saklanan eski version'lar) hiç etkilenmez.
-        sh """
-            ssh -p ${sshPort} -o ConnectTimeout=20 ${sshUser}@${deployIp} "docker image prune -f || true"
-        """
+        if (pruneDangling) {
+            sh """
+                ssh -p ${sshPort} -o ConnectTimeout=20 ${sshUser}@${deployIp} "docker image prune -f || true"
+            """
+        }
 
         // pruneImages: opsiyonel. "-a" hiçbir container'ın kullanmadığı TÜM imajları siler (sadece
         // dangling değil) — eski version tag'lerinin sunucuda sınırsız birikmesini engeller. Jenkins
