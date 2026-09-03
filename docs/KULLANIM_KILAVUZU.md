@@ -78,16 +78,21 @@ services:
 |------|---------|----------|
 | `app_name` | ✅ | Uygulama adı; deploy path `/app/<app_name>/` olarak belirlenir |
 | `recipients` | ❌ | Bildirim e-postaları (`emailTeams` anahtarı veya doğrudan adres) |
-| `environments` | ✅ | Ortam başına `deploy_targets` IP listesi |
+| `environments` | ✅ | Ortam başına `deploy_targets` IP listesi, `ssh_user`, `ssh_port` |
 | `services[].name` | ✅ | Servis adı |
 | `services[].path` | ✅ | Servis dizini (git diff için) |
 | `services[].dockerfile` | ✅ | Dockerfile yolu |
+| `services[].scan_path` | ❌ | Checkov/OSV taramasının kapsadığı dizin ya da dizin **listesi** (varsayılan: `path`) |
+| `services[].target` | ❌ | Multi-stage Dockerfile'da build edilecek stage (`--target`) |
+| `services[].push_latest` | ❌ | `false` → `:latest` tag'i push edilmez (varsayılan: `true`) |
 | `services[].image_name` | ✅ | Docker imaj adı |
 | `services[].env_file` | ❌ | .env dosyası yolu (ilk servis için Git'ten kopyalanır) |
 | `services[].docker_compose_file` | ❌ | Compose dosyası yolu |
 | `services[].docker_compose_remote_file` | ❌ | Sunucuda hangi adla saklanacağı |
 | `services[].extra_files` | ❌ | Ek dosya/dizin listesi |
 | `services[].ssh_user` | ❌ | SSH kullanıcı adı |
+| `services[].ssh_port` | ❌ | SSH portu (varsayılan: `22`) |
+| `services[].deploy_targets` | ❌ | Servise özel hedef IP listesi (`environments`'ı ezer) |
 | `services[].test_command` | ❌ | Test komutu |
 
 ### extra_files Detaylı Açıklama
@@ -104,6 +109,8 @@ extra_files:
 - Kaynak dosya mı dizin mi otomatik tespit edilir
 - Sunucuda hedef path farklı türde varsa otomatik temizlenir (Docker mount hatalarını önler)
 - `.env` dosyasından **önce** kopyalanır
+
+> `services[].path` bir liste de olabilir (ör. `[backend/, shared/]`); herhangi biri değişmişse servis build edilir. Path bir git submodule ise `checkDiff()` bunu tanır — superproject'teki gitlink pointer'ı bump'lanmamış olsa bile değişiklik yakalanır.
 
 ---
 
@@ -255,7 +262,10 @@ pipeline {
         stage('DockerScan Scan')         { steps { trivyScan(env.VERSION) } }
         stage('DockerScan Quality Gate') { steps { trivyQualityGate(env.APP, 'C') } }
 
-        stage('Docker Cleanup') { steps { sh 'docker system prune -af || true' } }
+        // dockerCleanup(): sadece dangling imaj + build cache temizler ve env.VERSION dışındaki
+        // eski tag'leri services.yml'e bakarak siler. `docker system prune -af`, Deploy'un henüz
+        // çekmediği imajları da sildiği için artık kullanılmıyor.
+        stage('Docker Cleanup') { steps { dockerCleanup() } }
 
         stage('Run Tests') {
             steps {
@@ -283,63 +293,21 @@ pipeline {
             }
         }
 
+        // deployAllServices(): imajları önden çeker, yalnızca değişen servisleri deploy eder ve
+        // `docker compose up`ı her host'ta tam olarak bir kez çalıştırır. Aşağıdaki tek çağrı,
+        // eskiden bu stage'de elle yazılan pull + deploy döngüsünün yerini alır.
         stage('Deploy') {
             steps {
                 script {
-                    def servicesConfig = readYaml file: 'services.yml'
-                    def credentialsMap = collectCredentials()
-
-                    // Önce tüm imajları pull et
-                    servicesConfig.services.each { svc ->
-                        def imageName = resolveImageName(svc.name, svc.image_name)
-                        resolveTargets(null).each { ip ->
-                            pullService([
-                                serviceName      : svc.name,
-                                imageName        : imageName,
-                                version          : env.VERSION,
-                                deployIp         : ip,
-                                nexusUrl         : env.NEXUS_URL,
-                                nexusRegistryUrl : env.NEXUS_REGISTRY_URL,
-                                registryPath     : env.REGISTRY_PATH,
-                                sshUser          : svc.ssh_user ?: 'your-user'
-                            ])
-                        }
-                    }
-
-                    // Deploy işlemi (son servis için docker compose up)
-                    def deployingSvcs = servicesConfig.services.findAll { s ->
-                        (doFlag(normalizeKey(s.name)) == '1') || env.PULL_EXISTING == '1'
-                    }
-                    def lastDeployingSvc = deployingSvcs ? deployingSvcs[-1] : null
-
-                    servicesConfig.services.each { svc ->
-                        def key = normalizeKey(svc.name)
-                        def imageName = resolveImageName(svc.name, svc.image_name)
-                        def shouldDeploy = (doFlag(key) == '1') || env.PULL_EXISTING == '1'
-                        if (shouldDeploy) {
-                            resolveTargets(null).each { ip ->
-                                deployService([
-                                    serviceName             : imageName,
-                                    version                 : env.VERSION,
-                                    appName                 : env.APP,
-                                    deployIp                : ip,
-                                    nexusUrl                : env.NEXUS_URL,
-                                    nexusRegistryUrl        : env.NEXUS_REGISTRY_URL,
-                                    registryPath            : env.REGISTRY_PATH,
-                                    dockerComposeFile       : svc.docker_compose_file ?: 'docker-compose.yml',
-                                    dockerComposeRemoteFile : svc.docker_compose_remote_file ?: svc.docker_compose_file ?: 'docker-compose.yml',
-                                    envFile                 : svc.env_file,
-                                    extraEnvVars            : (svc == servicesConfig.services[0]) ? credentialsMap : [:],
-                                    extraFiles              : svc.extra_files ?: [],
-                                    shouldPull              : false,
-                                    sshUser                 : svc.ssh_user ?: 'your-user',
-                                    runCompose              : (lastDeployingSvc != null && svc == lastDeployingSvc)
-                                ])
-                            }
-                        } else {
-                            echo "⏭️ [${svc.name}]: değişmedi → deploy atlanıyor."
-                        }
-                    }
+                    deployAllServices([
+                        appName         : env.APP,
+                        version         : env.VERSION,
+                        nexusUrl        : env.NEXUS_URL,
+                        nexusRegistryUrl: env.NEXUS_REGISTRY_URL,
+                        registryPath    : env.REGISTRY_PATH,
+                        credentialsMap  : collectCredentials(),
+                        pruneImages     : false   // true → deploy host'unda kullanılmayan TÜM imajlar silinir
+                    ])
                 }
             }
         }
@@ -404,6 +372,13 @@ sonar.sources=backend/src
 sonar.tests=backend/tests
 sonar.exclusions=**/__pycache__/**,**/node_modules/**
 ```
+
+`sonarQubeAnalysis()` akışı workspace içeriğine göre otomatik seçilir:
+
+- **`.sln` varsa (.NET):** `dotnet sonarscanner begin/end` çalıştırılır ve bulunan tüm `.sln` dosyaları tek analiz içinde build edilir. Bu yolda `sonar.sources` / `sonar.inclusions` kullanılmaz (kaynaklar build'den gelir); `sonar.projectKey`, `sonar.projectName` ve `sonar.*exclusions` değerleri bu dosyadan okunur. SonarScanner for .NET (v8+) bu dosyayı tanımadığı için analiz süresince geçici olarak kaldırılıp sonra geri konur — sizin bir şey yapmanız gerekmez.
+- **`.sln` yoksa (PHP, Node, Python, …):** düz `sonar-scanner` çalışır ve tüm ayarlar bu dosyadan okunur.
+
+Daha ayrıntılı örnek için: `Example/sonar-project_example.properties`
 
 ---
 
@@ -610,7 +585,9 @@ def call() {
 2. **services.yml:** `app_name` ve `environments` alanları zorunludur
 3. **SonarQube:** Her projede `sonar-project.properties` dosyası olmalıdır
 4. **SSH Erişimi:** Deploy sunucusuna SSH erişimi kurulu olmalıdır (`01-cicd-hazirliklari.md`)
-5. **pullService:** Compose çalıştırılmadan önce ayrıca çağrılır; `deployService` içinde `shouldPull: false` olarak kullanılır
+5. **deployAllServices:** Pull + deploy + tek seferlik `compose up` akışını tek çağrıda yapar; tek tek `pullService`/`deployService` çağırmak yerine bunu kullanın
+6. **Deploy kesintisi:** `docker compose down` çalıştırılmaz; `up -d --wait` container'lar healthy olana kadar bekler (varsayılan timeout 180 sn, `composeWaitTimeout` ile değiştirilir)
+7. **dockerCleanup:** `docker system prune -af` yerine kullanın — tag'li imajlara dokunmaz, yalnızca dangling imaj/build cache ve `services.yml`'deki imajların eski tag'lerini siler
 
 ---
 

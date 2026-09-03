@@ -78,16 +78,21 @@ services:
 |-------|----------|-------------|
 | `app_name` | ✅ | Application name; deploy path becomes `/app/<app_name>/` |
 | `recipients` | ❌ | Notification emails (`emailTeams` key or direct address) |
-| `environments` | ✅ | `deploy_targets` IP list per environment |
+| `environments` | ✅ | Per-environment `deploy_targets` IP list, `ssh_user`, `ssh_port` |
 | `services[].name` | ✅ | Service name |
 | `services[].path` | ✅ | Service directory (for git diff) |
 | `services[].dockerfile` | ✅ | Dockerfile path |
+| `services[].scan_path` | ❌ | Directory **or list of directories** covered by the Checkov/OSV scan (default: `path`) |
+| `services[].target` | ❌ | Stage to build in a multi-stage Dockerfile (`--target`) |
+| `services[].push_latest` | ❌ | `false` skips pushing the `:latest` tag (default: `true`) |
 | `services[].image_name` | ✅ | Docker image name |
 | `services[].env_file` | ❌ | .env file path (copied from Git for the first service) |
 | `services[].docker_compose_file` | ❌ | Compose file path |
 | `services[].docker_compose_remote_file` | ❌ | Name to use on the remote server |
 | `services[].extra_files` | ❌ | Additional files/directories list |
 | `services[].ssh_user` | ❌ | SSH username |
+| `services[].ssh_port` | ❌ | SSH port (default: `22`) |
+| `services[].deploy_targets` | ❌ | Service-specific target IP list (overrides `environments`) |
 | `services[].test_command` | ❌ | Test command |
 
 ### extra_files Detailed Explanation
@@ -104,6 +109,8 @@ extra_files:
 - Automatically detects whether source is a file or directory
 - Automatically cleans up conflicting path types on the server (prevents Docker mount errors)
 - Copied **before** the `.env` file
+
+> `services[].path` can also be a list (e.g. `[backend/, shared/]`); the service is built if any of them changed. If a path is a git submodule, `checkDiff()` recognises it and detects changes even when the superproject's gitlink pointer was never bumped.
 
 ---
 
@@ -255,7 +262,10 @@ pipeline {
         stage('DockerScan Scan')         { steps { trivyScan(env.VERSION) } }
         stage('DockerScan Quality Gate') { steps { trivyQualityGate(env.APP, 'C') } }
 
-        stage('Docker Cleanup') { steps { sh 'docker system prune -af || true' } }
+        // dockerCleanup(): prunes only dangling images and the build cache, and removes tags
+        // other than env.VERSION based on services.yml. `docker system prune -af` also removed
+        // images the Deploy stage had not pulled yet, so it is no longer used.
+        stage('Docker Cleanup') { steps { dockerCleanup() } }
 
         stage('Run Tests') {
             steps {
@@ -283,63 +293,21 @@ pipeline {
             }
         }
 
+        // deployAllServices(): pre-pulls the images, deploys only the services that changed and
+        // runs `docker compose up` exactly once per host. This single call replaces the
+        // hand-written pull + deploy loop this stage used to contain.
         stage('Deploy') {
             steps {
                 script {
-                    def servicesConfig = readYaml file: 'services.yml'
-                    def credentialsMap = collectCredentials()
-
-                    // Pull all images first
-                    servicesConfig.services.each { svc ->
-                        def imageName = resolveImageName(svc.name, svc.image_name)
-                        resolveTargets(null).each { ip ->
-                            pullService([
-                                serviceName      : svc.name,
-                                imageName        : imageName,
-                                version          : env.VERSION,
-                                deployIp         : ip,
-                                nexusUrl         : env.NEXUS_URL,
-                                nexusRegistryUrl : env.NEXUS_REGISTRY_URL,
-                                registryPath     : env.REGISTRY_PATH,
-                                sshUser          : svc.ssh_user ?: 'your-user'
-                            ])
-                        }
-                    }
-
-                    // Deploy (docker compose up on last service)
-                    def deployingSvcs = servicesConfig.services.findAll { s ->
-                        (doFlag(normalizeKey(s.name)) == '1') || env.PULL_EXISTING == '1'
-                    }
-                    def lastDeployingSvc = deployingSvcs ? deployingSvcs[-1] : null
-
-                    servicesConfig.services.each { svc ->
-                        def key = normalizeKey(svc.name)
-                        def imageName = resolveImageName(svc.name, svc.image_name)
-                        def shouldDeploy = (doFlag(key) == '1') || env.PULL_EXISTING == '1'
-                        if (shouldDeploy) {
-                            resolveTargets(null).each { ip ->
-                                deployService([
-                                    serviceName             : imageName,
-                                    version                 : env.VERSION,
-                                    appName                 : env.APP,
-                                    deployIp                : ip,
-                                    nexusUrl                : env.NEXUS_URL,
-                                    nexusRegistryUrl        : env.NEXUS_REGISTRY_URL,
-                                    registryPath            : env.REGISTRY_PATH,
-                                    dockerComposeFile       : svc.docker_compose_file ?: 'docker-compose.yml',
-                                    dockerComposeRemoteFile : svc.docker_compose_remote_file ?: svc.docker_compose_file ?: 'docker-compose.yml',
-                                    envFile                 : svc.env_file,
-                                    extraEnvVars            : (svc == servicesConfig.services[0]) ? credentialsMap : [:],
-                                    extraFiles              : svc.extra_files ?: [],
-                                    shouldPull              : false,
-                                    sshUser                 : svc.ssh_user ?: 'your-user',
-                                    runCompose              : (lastDeployingSvc != null && svc == lastDeployingSvc)
-                                ])
-                            }
-                        } else {
-                            echo "[${svc.name}]: no changes — skipping deploy."
-                        }
-                    }
+                    deployAllServices([
+                        appName         : env.APP,
+                        version         : env.VERSION,
+                        nexusUrl        : env.NEXUS_URL,
+                        nexusRegistryUrl: env.NEXUS_REGISTRY_URL,
+                        registryPath    : env.REGISTRY_PATH,
+                        credentialsMap  : collectCredentials(),
+                        pruneImages     : false   // true removes every unused image on the deploy host
+                    ])
                 }
             }
         }
@@ -404,6 +372,13 @@ sonar.sources=backend/src
 sonar.tests=backend/tests
 sonar.exclusions=**/__pycache__/**,**/node_modules/**
 ```
+
+`sonarQubeAnalysis()` picks its flow automatically from the workspace contents:
+
+- **`.sln` present (.NET):** runs `dotnet sonarscanner begin/end` and builds every `.sln` it finds inside a single analysis. `sonar.sources` / `sonar.inclusions` are not used on this path (sources come from the build); `sonar.projectKey`, `sonar.projectName` and the `sonar.*exclusions` values are read from this file. SonarScanner for .NET (v8+) does not recognise the file, so it is moved aside for the duration of the analysis and restored afterwards - nothing is required from you.
+- **No `.sln` (PHP, Node, Python, ...):** plain `sonar-scanner` runs and reads every setting from this file.
+
+For a more detailed example see `Example/sonar-project_example.properties`.
 
 ---
 
@@ -610,7 +585,9 @@ def call() {
 2. **services.yml:** The `app_name` and `environments` fields are required
 3. **SonarQube:** Each project must have a `sonar-project.properties` file
 4. **SSH Access:** SSH access to the deploy server must be configured (`01-cicd-preparation.md`)
-5. **pullService:** Called separately before running Compose; `deployService` uses `shouldPull: false`
+5. **deployAllServices:** Does pull + deploy + the one-time `compose up` in a single call; prefer it over calling `pullService`/`deployService` service by service
+6. **Deploy downtime:** `docker compose down` is not run; `up -d --wait` waits until the containers are healthy (default timeout 180s, change it with `composeWaitTimeout`)
+7. **dockerCleanup:** Use it instead of `docker system prune -af` - it leaves tagged images alone and only removes dangling images, the build cache, and older tags of the images listed in `services.yml`
 
 ---
 

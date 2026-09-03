@@ -65,7 +65,9 @@ devops-jenkins-library/
 │   ├── buildAndPushService.groovy     # Docker build & push
 │   ├── pullService.groovy             # Sunucuya Docker image pull
 │   ├── runTestsInContainer.groovy     # Container'da test çalıştırma
-│   ├── deployService.groovy           # Deploy işlemi
+│   ├── deployService.groovy           # Deploy işlemi (tek servis)
+│   ├── deployAllServices.groovy       # services.yml'deki tüm servisleri deploy eder
+│   ├── dockerCleanup.groovy           # Agent'ta güvenli Docker temizliği
 │   ├── trivyScan.groovy               # DockerScan güvenlik taraması
 │   ├── trivyQualityGate.groovy        # DockerScan Quality Gate kontrolü
 │   ├── checkovScan.groovy             # Checkov IaC güvenlik taraması
@@ -76,15 +78,16 @@ devops-jenkins-library/
 │   └── emailTeams.groovy              # Takım e-posta listesi
 ├── Example/                           # Örnek dosyalar
 │   ├── Jenkins_example.groovy         # Tam Jenkinsfile örneği
-│   └── services_example.yml          # services.yml örneği
+│   ├── services_example.yml          # services.yml örneği
+│   └── sonar-project_example.properties # sonar-project.properties örneği
 ├── docs/                              # Belgeler
 │   ├── 01-cicd-hazirliklari.md       # CI/CD öncesi hazırlık rehberi
 │   ├── 02-pipeline-kurulumu.md       # Pipeline kurulum adımları
 │   ├── 03-jenkins-plugin-kurulumu.md # Gerekli Jenkins eklentileri
 │   ├── KULLANIM_KILAVUZU.md          # Detaylı kullanım kılavuzu
 │   └── SSS.md                        # Sık sorulan sorular
-├── credentials_test.groovy            # Test ortamı credential'larını toplu yükler
-├── credentials_prod.groovy            # Prod ortamı credential'larını toplu yükler
+├── credentials_test.groovy.example    # Şablon: test ortamı credential'larını toplu yükler
+├── credentials_prod.groovy.example    # Şablon: prod ortamı credential'larını toplu yükler
 └── README.md                          # İngilizce dokümantasyon
 ```
 
@@ -248,24 +251,33 @@ deployService([
 
 ---
 
-### `sonarQubeAnalysis(serverName)`
+### `sonarQubeAnalysis(serverName, options)`
 
-SonarQube kod analizi yapar.
+SonarQube kod analizi yapar. Akış, workspace içeriğine göre otomatik seçilir:
+
+- **`.sln` bulunursa → .NET akışı.** `dotnet sonarscanner begin` / `dotnet build` / `end` çalıştırılır. Repoda birden fazla `.sln` varsa manuel seçim gerekmez, hepsi tek analiz içinde build edilir. Proje anahtarı/adı ve exclusion değerleri `sonar-project.properties`'ten okunur; SonarScanner for .NET (v8+) bu dosyayı tanımadığı ve workspace'te görürse `end` adımında hata verdiği için, dosya analiz süresince geçici olarak kaldırılıp sonra geri konur. Tanımlı olmayan alanlar hiç geçilmez — boş bir `/d:` değeri "format geçersiz" uyarısına yol açıyor.
+- **`.sln` yoksa (PHP, Node, Python, …) → generic akış.** Düz `sonar-scanner` çalıştırılır; `sonar-project.properties` dosyasını kendisi okur.
 
 **Parametreler:**
 - `serverName` (String): Jenkins'te tanımlı SonarQube server adı
+- `options` (Map, opsiyonel): `dotnetRoot` — .NET SDK kök dizini (varsayılan: `env.DOTNET_ROOT` ya da `/home/jenkins/.dotnet`)
 
-> Proje root dizininde `sonar-project.properties` dosyası olmalı.
+> Proje root dizininde `sonar-project.properties` dosyası olmalı. Örnek için: `Example/sonar-project_example.properties`.
 
 ```groovy
 sonarQubeAnalysis(env.SONAR_SERVER)
+sonarQubeAnalysis(env.SONAR_SERVER, [dotnetRoot: '/opt/dotnet'])
 ```
 
 ---
 
-### `sonarQubeQualityGate()`
+### `sonarQubeQualityGate(config)`
 
-SonarQube Quality Gate kontrolü yapar.
+SonarQube Quality Gate sonucunu kontrol eder.
+
+**Parametreler (Map, opsiyonel):**
+- `timeoutMinutes` — sonuç beklerken üst sınır (varsayılan: `10`). Webhook hiç gelmezse
+  adım bu süre sonunda hata verir; önceden süresiz bekleyip bir executor'ı tutuyordu.
 
 ```groovy
 sonarQubeQualityGate()
@@ -294,17 +306,27 @@ def exists = checkTagOnNexus(imageName, env.VERSION, env.NEXUS_URL, env.REGISTRY
 
 ### `checkDiff(servicePath, prevCommit, currCommit)`
 
-Belirtilen path'te git diff kontrolü yapar.
+Belirtilen path(ler)de git diff kontrolü yapar.
 
 **Parametreler:**
-- `servicePath` (String): Kontrol edilecek path (örn: `backend/`)
+- `servicePath` (String veya List): Kontrol edilecek path(ler) (örn: `backend/` ya da `['backend/', 'shared/']`). Herhangi biri değişmişse `1` döner. Boş bırakılırsa tüm repo kontrol edilir.
 - `prevCommit` (String): Önceki commit hash
 - `currCommit` (String): Mevcut commit hash
 
 **Dönen Değer:** `1` (değişiklik var) veya `0` (değişiklik yok)
 
+**`options.failOpen`** — baseline (önceki başarılı commit) yokken ne döneceği:
+`false` (varsayılan) → `0`, yani "değişiklik yok"; `true` → `1`, yani "bilinmiyor, build et".
+Varsayılan geriye dönük uyumluluk için korundu ama ters yönde güvenlidir: ilk build'de
+hiçbir servis deploy edilmez. `Example/Jenkins_example.groovy` bunu çağıran tarafta
+`hasBaseline` kontrolüyle telafi ediyor; fonksiyonu doğrudan kullanıyorsanız
+`[failOpen: true]` verin.
+
+**Submodule desteği:** Bir path git submodule ise (örn. `--remote` ile checkout edilmişse), submodule kendi reposunda yeni commit almış olsa bile superproject'teki gitlink pointer'ı hiç bump'lanmamış olabilir. Bu tür path'lerde superproject diff'i yerine, submodule'ün şu anki `HEAD`'i superproject'te en son pinlenmiş SHA ile karşılaştırılır — pointer bump şart değildir.
+
 ```groovy
 def changed = checkDiff(svc.path, env.GIT_PREVIOUS_SUCCESSFUL_COMMIT, env.GIT_COMMIT)
+def coklu   = checkDiff(['backend/', 'shared/'], prev, curr)   // birden fazla path
 ```
 
 ---
@@ -321,6 +343,7 @@ Docker imajını build edip Nexus ve opsiyonel olarak Harbor'a push eder.
 | `version` | ✅ | Tag versiyonu |
 | `servicePath` | ✅ | Servis dizini (Docker context) |
 | `dockerfile` | ❌ | Dockerfile yolu (varsayılan: `Dockerfile`) |
+| `target` | ❌ | Multi-stage Dockerfile'da build edilecek stage (`--target`) |
 | `nexusUrl` | ✅ | Nexus REST API URL |
 | `nexusRegistryUrl` | ❌ | Nexus Docker registry URL (varsayılan: `nexusUrl`) |
 | `registryPath` | ✅ | Registry path |
@@ -328,6 +351,7 @@ Docker imajını build edip Nexus ve opsiyonel olarak Harbor'a push eder.
 | `envFile` | ❌ | .env dosyası yolu |
 | `nexusRepoCredentialId` | ❌ | Nexus credential ID (varsayılan: `NEXUS_CREDENTIAL_ID`) |
 | `harborCredentialId` | ❌ | Harbor credential ID |
+| `pushLatest` | ❌ | `:latest` tag'i de push edilsin mi (varsayılan: `true`). `:latest`, `--cache-from` için kullanıldığından kapatmak build'leri soğutur. |
 
 ```groovy
 buildAndPushService([
@@ -339,9 +363,13 @@ buildAndPushService([
     nexusRegistryUrl : env.NEXUS_REGISTRY_URL,
     registryPath     : env.REGISTRY_PATH,
     jenkinsRegistry  : env.HARBOR_REGISTRY,
-    envFile          : svc.env_file
+    envFile          : svc.env_file,
+    target           : svc.target,       // opsiyonel: multi-stage build stage'i
+    pushLatest       : svc.push_latest   // opsiyonel: false → :latest atlanır
 ])
 ```
+
+> `:latest` tag'i ve Harbor push'u, yerel kısa isimden değil az önce Nexus'a push edilen imaj referansından üretilir — paralel bir job veya cleanup, adımlar arasında yerel tag'i düşürebiliyor.
 
 ---
 
@@ -427,7 +455,14 @@ Servisi sunucuya deploy eder.
 | `shouldPull` | ❌ | Docker imajını pull et (varsayılan: `false`) |
 | `imageName` | ❌ | Docker imaj adı (varsayılan: `serviceName`) |
 | `sshUser` | ❌ | SSH kullanıcı adı (varsayılan: `your-user`) |
+| `sshPort` | ❌ | SSH portu (varsayılan: `22`) |
 | `runCompose` | ❌ | `docker compose up -d` çalıştır (varsayılan: `true`) |
+| `composeWaitTimeout` | ❌ | `docker compose up --wait` için `--wait-timeout` (saniye, varsayılan: `180`) |
+| `pruneImages` | ❌ | Compose sonrası deploy host'unda `docker image prune -a -f` çalıştır (varsayılan: `false`) |
+| `composeWait` | ❌ | `up -d --wait` kullan (varsayılan: `true`). İşini yapıp çıkan migration/init container'ı olan projelerde `false` verin — `--wait` böyle bir container'da hata döndürür. |
+| `pruneDangling` | ❌ | Compose sonrası dangling imajları temizle (varsayılan: `true`) |
+
+**Compose davranışı:** `docker compose down` artık çalıştırılmıyor — gereksiz kesinti yaratıyordu ve `up -d` zaten yalnızca config/imajı değişen container'ı yeniden oluşturuyor. Sabit `sleep` yerine `up -d --wait` kullanılıyor: container'lar healthy (healthcheck yoksa running) olana kadar beklenir, olmazsa adım hata verir. Compose'dan sonra `docker image prune -f` yalnızca yeni deploy'un dangling bıraktığı imajları siler; başka bir tag'e bağlı imajlara dokunulmaz. Compose dosyasının kopyalanması ile çalıştırılması ayrı takip edilir; aynı host'u paylaşan servislerde dosyayı ilk servis kopyalar, `up`ı yalnızca sonuncusu çalıştırır.
 
 ```groovy
 deployService([
@@ -444,9 +479,70 @@ deployService([
     extraFiles              : svc.extra_files,
     shouldPull              : false,
     sshUser                 : svc.ssh_user ?: 'your-user',
-    runCompose              : true
+    sshPort                 : svc.ssh_port ?: 22,
+    runCompose              : true,
+    pruneImages             : false
 ])
 ```
+
+---
+
+### `deployAllServices(config)`
+
+`services.yml`'deki tüm servisleri hedef sunuculara deploy eder. Elle yazılan pull + deploy döngüsünün yerini alır: önce tüm imajlar önden çekilir, sonra yalnızca değişen servisler deploy edilir ve `docker compose up`ın **her host'ta tam olarak bir kez** çalışması garanti edilir (o host'a deploy eden son servis üzerinden çözülür; böylece farklı `deploy_targets` kullanan servisler de doğru ele alınır).
+
+**Parametreler (Map):**
+
+| Parametre | Zorunlu | Açıklama |
+|-----------|---------|----------|
+| `appName` | ✅ | Uygulama adı (deploy path: `/app/<appName>/`) |
+| `version` | ✅ | Tag versiyonu |
+| `nexusUrl` | ✅ | Nexus URL |
+| `registryPath` | ✅ | Registry path |
+| `nexusRegistryUrl` | ❌ | Nexus Docker registry URL (varsayılan: `nexusUrl`) |
+| `nexusCredentialId` | ❌ | Nexus credential ID (varsayılan: `NEXUS_CREDENTIAL_ID`) |
+| `credentialsMap` | ❌ | `.env`'e yazılacak credentials (`collectCredentials()` çıktısı) |
+| `servicesFile` | ❌ | services.yml yolu (varsayılan: `SERVICES_FILE` env ya da `services.yml`) |
+| `pruneImages` | ❌ | `deployService`'e aktarılır (varsayılan: `false`) |
+| `sshUser` / `sshPort` | ❌ | Servis kendi değerini tanımlamadığında kullanılacak varsayılanlar |
+
+Hedef sunucular şu sırayla çözülür: `DEPLOY_TARGETS` env → servisin kendi `deploy_targets` alanı → `GLOBAL_TARGETS` (Initialize stage'inde `environments.<ortam>`'dan set edilir) → `IP1`..`IP4`.
+
+> `credentialsMap` yalnızca ilk servise değil, deploy edilen **her** servise geçilir. Tüm servisler aynı `/app/<appName>/.env` dosyasını paylaştığı için, bunu ilk servisle sınırlamak, sonraki bir servis değiştiğinde credential güncellemesinin sessizce atlanmasına yol açıyordu.
+
+```groovy
+deployAllServices([
+    appName         : env.APP,
+    version         : env.VERSION,
+    nexusUrl        : env.NEXUS_URL,
+    nexusRegistryUrl: env.NEXUS_REGISTRY_URL,
+    registryPath    : env.REGISTRY_PATH,
+    credentialsMap  : collectCredentials(),
+    pruneImages     : false
+])
+```
+
+---
+
+### `dockerCleanup(config)`
+
+Build sonrası Jenkins agent'ında disk alanı boşaltır.
+
+Yalnızca dangling imajlar ve build cache temizlenir, tag'li imajlara dokunulmaz. (`docker system prune -af`, Deploy aşamasının henüz çekmediği imajları da siliyor ve deploy'u bozuyordu.) `keepVersion` (ya da `env.VERSION`) tanımlıysa ve `services.yml` varsa, orada listelenen her imajın **eski tag'leri** de silinir; böylece proje adını Jenkinsfile'a elle yazmak gerekmez ve paylaşımlı agent'ta başka projelerin ya da base imajların (node, dotnet, …) imajlarına hiç dokunulmaz.
+
+**Parametreler (Map, tümü opsiyonel):**
+
+| Parametre | Açıklama |
+|-----------|----------|
+| `keepVersion` | Korunacak tag (varsayılan: `env.VERSION`) |
+| `pruneBuilder` | BuildKit cache'ini de sil (varsayılan: `false`). Açmak build cache'ini yok eder — `buildAndPushService`'in `--cache-from` kazancını iptal eder. |
+| `servicesFile` | services.yml yolu (varsayılan: `SERVICES_FILE` env ya da `services.yml`) |
+
+```groovy
+dockerCleanup()
+```
+
+> Tam temizlik için Deploy stage'inden **sonra** çağırın; aksi halde henüz çekilmemiş imajlar silinebilir.
 
 **extraFiles Formatları:**
 ```yaml
@@ -764,3 +860,32 @@ Detaylı sorun giderme için: **[docs/SSS.md](docs/SSS.md)**
 ## Lisans
 
 Bu proje kurumsal kullanım içindir.
+
+---
+
+## Davranış Değişiklikleri
+
+Bu sürümde varsayılan davranışı etkileyen değişiklikler. Kütüphaneyi sürüm etiketiyle
+sabitlemek için: `@Library('devops-jenkins-library@v2.0') _`
+
+| Değişiklik | Etki | Geri alma |
+|-----------|------|-----------|
+| `docker compose down` artık çalıştırılmıyor; yerine `up -d --wait` | Deploy kesintisi azalır; container'lar sağlıklı olana kadar beklenir | `composeWait: false` |
+| `--wait` / `--wait-timeout` yalnızca host'un Compose sürümü destekliyorsa eklenir (≥ 2.1.1 / ≥ 2.17) | Eski host'larda sessizce düz `up -d`'ye dönülür | — (otomatik) |
+| Compose sonrası deploy host'unda `docker image prune -f` | Yeni deploy'un dangling bıraktığı imajlar silinir; host geneli çalışır | `pruneDangling: false` |
+| `buildAndPushService` artık Nexus'a `docker login` yapıyor | Agent'ın pipeline dışında login edilmiş olması gerekmiyor | — |
+| Build'e `BUILDKIT_INLINE_CACHE=1` eklendi | `--cache-from` gerçekten çalışıyor (önceden sessizce boşa gidiyordu) | — |
+| `dockerCleanup` artık BuildKit cache'ini **silmiyor** | Sonraki build'ler daha hızlı | `pruneBuilder: true` |
+| `collectCredentials` adında rakam geçen değişkenleri de topluyor | `AWS_S3_SECRET`, `DB2_PASSWORD` gibi credential'lar önceden **sessizce atlanıyordu**; artık `.env`'e yazılıyorlar | — |
+| `sonarQubeQualityGate` 10 dakikalık timeout ile çalışıyor | Webhook gelmezse adım süresiz asılı kalmıyor | `timeoutMinutes: N` |
+| checkov/osv quality gate yalnızca bu build'in tag'ini değerlendiriyor | Eski bir tag'in kötü notu sonraki build'leri fail ettirmiyor | — |
+| Checkov/OSV taramasına `.env`, `node_modules`, `.git` vb. **gönderilmiyor** | Sırlar tarama sunucusunda kalmıyor, yükleme hızlanıyor | — |
+| Tüm `ssh`/`scp` çağrıları bağlantı çoğullama kullanıyor | Deploy başına ~100 SSH handshake yerine host başına tek oturum | `sshOptions([multiplex: false])` |
+
+**Güvenlik düzeltmesi:** `pullService`, `runTestsInContainer` ve `trivyScan` Nexus şifresini
+shell komut satırına gömüyordu; değer agent'ta (ve DockerScan sunucusunda) `ps aux` ile
+okunabiliyordu. Artık stdin üzerinden aktarılıyor. Şifresinde tek tırnak bulunan kurulumlar
+önceden çalışmıyordu, artık çalışıyor.
+
+**Doğrulama:** `groovy tools/syntax-check.groovy` ile `vars/` sözdizimi denetlenir; her
+push/PR'da GitHub Actions üzerinden otomatik çalışır.

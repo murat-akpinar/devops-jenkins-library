@@ -1,5 +1,6 @@
 def call(Map config) {
     def serviceName       = config.serviceName
+    def SSH_OPTS = sshOptions()
     def version           = config.version
     def nexusUrl          = config.nexusUrl
     def nexusRegistryUrl  = config.nexusRegistryUrl ?: env.NEXUS_REGISTRY_URL ?: nexusUrl
@@ -15,35 +16,61 @@ def call(Map config) {
     def nexusRegistry = nexusRegistryUrl.replaceAll('^https?://', '')
     def imageName = "${nexusRegistry}/repository/${registryPath}/${serviceName}:${version}"
 
+    // Testin exit kodu korunmalı ama imaj her durumda temizlenmeli. Önceki sürümde script
+    // `set -e` ile başlıyordu; `docker run` başarısız olunca kabuk o satırda çıkıyor,
+    // altındaki TEST_EXIT/temizlik satırları hiç çalışmıyordu. Artık temizlik `trap` ile
+    // garanti altında ve exit kodu `if` bloğuyla açıkça yakalanıyor.
     def testCmds = """
-        set -e
+        SSH="ssh -p ${sshPort} ${SSH_OPTS} ${sshUser}@${deployIp}"
+
+        cleanup() {
+            echo "🧹 Test imajı temizleniyor..."
+            \$SSH "docker rmi ${imageName} 2>/dev/null || true"
+        }
+        trap cleanup EXIT
+
         echo "📥 Nexus'tan imaj çekiliyor: ${imageName}"
-        ssh -p ${sshPort} -o ConnectTimeout=20 ${sshUser}@${deployIp} "docker pull ${imageName}" || {
+        if ! \$SSH "docker pull ${imageName}"; then
             echo "❌ Imaj çekilemedi: ${imageName}"
             exit 1
-        }
+        fi
+
         echo "🧪 Test başlatılıyor..."
-        ssh -p ${sshPort} -o ConnectTimeout=20 ${sshUser}@${deployIp} "docker run --rm ${imageName} sh -c '${testCommand}'"
-        TEST_EXIT=\$?
-        ssh -p ${sshPort} -o ConnectTimeout=20 ${sshUser}@${deployIp} "docker rmi ${imageName} 2>/dev/null || true"
-        [ \$TEST_EXIT -eq 0 ] || { echo "❌ Testler başarısız (exit: \$TEST_EXIT)"; exit \$TEST_EXIT; }
-        echo "✅ Tüm testler başarıyla tamamlandı"
+        if \$SSH "docker run --rm ${imageName} sh -c '${testCommand}'"; then
+            echo "✅ Tüm testler başarıyla tamamlandı"
+        else
+            TEST_EXIT=\$?
+            echo "❌ Testler başarısız (exit: \$TEST_EXIT)"
+            exit \$TEST_EXIT
+        fi
     """
 
     if (nexusCredentialId?.trim()) {
-        withCredentials([usernamePassword(
-            credentialsId: nexusCredentialId,
-            usernameVariable: 'NEXUS_USER',
-            passwordVariable: 'NEXUS_PASS'
-        )]) {
-            sh """
-                ssh -p ${sshPort} -o ConnectTimeout=20 ${sshUser}@${deployIp} \
-                    "grep -q '${nexusRegistry}' ~/.docker/config.json 2>/dev/null \
-                     && echo '✅ Docker login mevcut: ${nexusRegistry}' \
-                     || (echo '🔐 Docker login yapılıyor...' && \
-                         printf '%s' '${NEXUS_PASS}' | docker login ${nexusRegistry} -u '${NEXUS_USER}' --password-stdin)"
-                ${testCmds}
-            """
+        // Kimlik bilgileri bilerek Groovy ile interpolate EDİLMİYOR — stdin üzerinden aktarılıyor,
+        // böylece hiçbir process listesinde görünmüyor ve özel karakterli şifreler bozulmuyor.
+        withEnv([
+            "RT_SSH_TARGET=${sshUser}@${deployIp}",
+            "RT_SSH_PORT=${sshPort}",
+            "RT_REGISTRY=${nexusRegistry}",
+                "RT_SSH_OPTS=${SSH_OPTS}"
+        ]) {
+            withCredentials([usernamePassword(
+                credentialsId: nexusCredentialId,
+                usernameVariable: 'NEXUS_USER',
+                passwordVariable: 'NEXUS_PASS'
+            )]) {
+                sh '''
+                    set -e
+                    if ssh -p "$RT_SSH_PORT" $RT_SSH_OPTS "$RT_SSH_TARGET" "grep -q '$RT_REGISTRY' ~/.docker/config.json 2>/dev/null"; then
+                        echo "✅ Docker login mevcut: $RT_REGISTRY"
+                    else
+                        echo "🔐 Docker login yapılıyor: $RT_REGISTRY"
+                        printf '%s\\n%s\\n%s\\n' "$RT_REGISTRY" "$NEXUS_USER" "$NEXUS_PASS" |
+                          ssh -p "$RT_SSH_PORT" $RT_SSH_OPTS "$RT_SSH_TARGET" 'read -r R; read -r U; read -r P; printf "%s" "$P" | docker login "$R" -u "$U" --password-stdin'
+                    fi
+                '''
+                sh testCmds
+            }
         }
     } else {
         echo "ℹ️ Credential belirtilmedi → anonim pull"
@@ -52,4 +79,3 @@ def call(Map config) {
 
     echo "✅ [${serviceName}] Testler tamamlandı"
 }
-

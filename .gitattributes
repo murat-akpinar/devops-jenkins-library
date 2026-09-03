@@ -1,0 +1,15 @@
+# Satır sonlarını sabitle. Önceden vars/ içinde 9 dosya CRLF, 9 dosya LF idi;
+# .gitattributes olmadığı için git sürekli uyarı veriyor ve diff'ler gürültülü oluyordu.
+* text=auto eol=lf
+
+*.groovy   text eol=lf
+*.yml      text eol=lf
+*.yaml     text eol=lf
+*.md       text eol=lf
+*.sh       text eol=lf
+*.properties text eol=lf
+
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary

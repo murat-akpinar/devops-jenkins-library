@@ -400,6 +400,14 @@ services:
 
 ## 🚀 Deploy İşlemi
 
+> **Not:** Aşağıdaki sorular `deployService()`'i tek tek çağıran eski akışı anlatıyor ve
+> mekanizma olarak hâlâ geçerli. Yeni pipeline'larda tek tek `pullService`/`deployService`
+> çağırmak yerine **`deployAllServices()`** kullanın: imajları önden çeker, yalnızca değişen
+> servisleri deploy eder, `docker compose up`ı her host'ta tam bir kez çalıştırır ve
+> `credentialsMap`'i deploy edilen **her** servise geçirir (elle yazılan döngülerde
+> credentials yalnızca ilk servise geçiriliyor ve sonraki bir servis değiştiğinde
+> güncelleme sessizce atlanıyordu). Ayrıntı: [README.TR.md](../README.TR.md)
+
 ### Q18: deployService() hangi dosyada credentials'ları .env'ye yazıyor?
 
 **Cevap:** `vars/deployService.groovy` dosyasında.
@@ -477,10 +485,12 @@ JENKINS_SECRET = credentials('secret')  // Hariç tutulur
 MY_SECRET = credentials('secret')  // Yazılır
 
 // Deploy stage'inde
-def credentialsMap = collectCredentials()
-deployService([
-    // ...
-    extraEnvVars: credentialsMap
+deployAllServices([
+    appName        : env.APP,
+    version        : env.VERSION,
+    nexusUrl       : env.NEXUS_URL,
+    registryPath   : env.REGISTRY_PATH,
+    credentialsMap : collectCredentials()
 ])
 ```
 

@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main, development]
+  pull_request:
+
+jobs:
+  syntax:
+    name: Groovy sözdizimi kontrolü
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Groovy kur
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y groovy
+
+      - name: vars/*.groovy sözdizimini denetle
+        run: groovy tools/syntax-check.groovy
+
+  shell:
+    name: Kabuk scriptleri
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: shellcheck kur
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: tools/ altındaki kabuk scriptlerini denetle
+        run: |
+          shopt -s nullglob
+          files=(tools/*.sh)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "Denetlenecek .sh dosyası yok, atlanıyor."
+            exit 0
+          fi
+          shellcheck "${files[@]}"

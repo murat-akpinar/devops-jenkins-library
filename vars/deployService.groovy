@@ -1,9 +1,48 @@
 import groovy.transform.Field
 
 @Field Set executedComposeKeys = [] as Set
+@Field Set copiedComposeKeys = [] as Set
+// Host başına bir kez okunan `docker compose version` çıktısı (build ömrü boyunca cache'lenir)
+@Field Map composeVersionByHost = [:]
+
+// "v2.24.5" -> 2024005 : karşılaştırılabilir tek sayi. Parse edilemezse 0.
+def versionKey(String v) {
+    def parts = (v ?: '').replaceAll('^[vV]', '').split('[^0-9]+').findAll { it }
+    def a = parts.size() > 0 ? parts[0].toInteger() : 0
+    def b = parts.size() > 1 ? parts[1].toInteger() : 0
+    def c = parts.size() > 2 ? parts[2].toInteger() : 0
+    return a * 1000000 + b * 1000 + c
+}
+
+// `docker compose up --wait` Compose >= 2.1.1, `--wait-timeout` >= 2.17 gerektiriyor.
+// Daha eski bir host'ta bu bayraklar "unknown flag" ile HER deploy'u kırardı. Host'un sürümü
+// bir kez okunup, bayraklar yalnızca desteklendiğinde ekleniyor; desteklenmiyorsa sessizce
+// eski davranışa (düz `up -d`) dönülüyor. Sürüm okunamazsa da güvenli tarafta kalınıyor.
+def resolveComposeWaitArgs(String sshUser, def sshPort, String deployIp, def waitTimeout) {
+    def hostKey = "${sshUser}@${deployIp}:${sshPort}"
+    if (!composeVersionByHost.containsKey(hostKey)) {
+        // Bu metot call() dışında; SSH_OPTS orada tanımlı olduğu için burada yeniden alınır.
+        def sshOpts = sshOptions()
+        def detected = sh(
+            script: "ssh -p ${sshPort} ${sshOpts} ${sshUser}@${deployIp} 'docker compose version --short 2>/dev/null' || true",
+            returnStdout: true
+        ).trim()
+        composeVersionByHost[hostKey] = detected
+        if (detected) {
+            echo "  ℹ️  ${deployIp} docker compose sürümü: ${detected}"
+        } else {
+            echo "  ⚠️  ${deployIp} docker compose sürümü okunamadı → --wait kullanılmayacak"
+        }
+    }
+    def key = versionKey(composeVersionByHost[hostKey])
+    if (key >= versionKey('2.17.0')) { return " --wait --wait-timeout ${waitTimeout}" }
+    if (key >= versionKey('2.1.1'))  { return " --wait" }
+    return ""
+}
 
 def call(Map config) {
     def serviceName = config.serviceName
+    def SSH_OPTS = sshOptions()
     def version = config.version
     def appName = config.appName
     def deployIp = config.deployIp
@@ -13,15 +52,27 @@ def call(Map config) {
     def dockerComposeFile = config.dockerComposeFile ?: 'docker-compose.yml'
     def dockerComposeRemoteFile = config.dockerComposeRemoteFile ?: dockerComposeFile
     def envFile = config.envFile
+    // SSH kullanıcısı/portu bilerek globalConfig'ten okunmuyor: globalConfig tüm
+    // projelerin paylaştığı tek dosya, bu değerler ise proje ve ortam bazında değişiyor.
+    // Doğru yer services.yml (environments.<ortam>.ssh_user / services[].ssh_user).
     def sshUser = config.sshUser ?: 'your-user'
     def sshPort = config.sshPort ?: 22
-    env.DEPLOY_SSH_PORT = sshPort.toString()
     def shouldPull = config.shouldPull ?: false
     def imageName = config.imageName ?: serviceName
     def extraFiles = config.extraFiles ?: [] // [{src: 'nginx.conf', dest: '/app/appname/nginx.conf'}, ...]
     def extraEnvVars = config.extraEnvVars ?: [:] // [{key: 'DB_PASS', value: 'secret'}, ...] veya [DB_PASS: 'secret', ...]
     def runCompose = (config.runCompose != null ? config.runCompose : true)
+    // opsiyonel: deploy host'unda hiçbir container'ın kullanmadığı TÜM imajları siler (varsayılan kapalı)
+    def pruneImages = (config.pruneImages != null ? config.pruneImages.toString() == 'true' : false)
+    // `docker compose up --wait` için timeout (sn). Migration'ı uzun süren servisler yanlışlıkla fail olmasın diye geniş tutuldu.
+    def composeWaitTimeout = config.composeWaitTimeout ?: 180
+    // `--wait`, işini yapip çıkan (exit 0) container'larda hata döndürür — migration/init
+    // container'i olan projeler bunu kapatmak için composeWait: false verir.
+    def composeWait = (config.composeWait != null) ? (config.composeWait.toString() == 'true') : true
+    // Compose sonrası dangling imaj temizliği. Host geneli çalışır; kapatmak için false.
+    def pruneDangling = (config.pruneDangling != null) ? (config.pruneDangling.toString() == 'true') : true
     def composeOnceKey = config.composeOnceKey ?: "${appName}@${deployIp}:${dockerComposeRemoteFile}"
+    def shouldCopyComposeNow = !copiedComposeKeys.contains(composeOnceKey)
     def shouldRunComposeNow = runCompose && !executedComposeKeys.contains(composeOnceKey)
     
     echo "🚀 [${serviceName}] Deploy başlıyor..."
@@ -32,16 +83,16 @@ def call(Map config) {
     
     // Hedef dizini hazırla
     sh """
-        ssh -p ${sshPort} -o ConnectTimeout=20 ${sshUser}@${deployIp} "sudo mkdir -p /app/${appName}/ && sudo chown -R ${sshUser}:${sshUser} /app/${appName}/"
+        ssh -p ${sshPort} ${SSH_OPTS} ${sshUser}@${deployIp} "sudo mkdir -p /app/${appName}/ && sudo chown -R ${sshUser}:${sshUser} /app/${appName}/"
     """
 
     if (shouldPull) {
         echo "📥 [${serviceName}] Imaj çekiliyor: ${nexusImageName} → ${imageName}:${version}"
         sh """
-            ssh -p ${sshPort} -o ConnectTimeout=20 ${sshUser}@${deployIp} "docker rmi ${imageName}:${version} || true"
-            ssh -p ${sshPort} -o ConnectTimeout=20 ${sshUser}@${deployIp} "docker pull ${nexusImageName}"
-            ssh -p ${sshPort} -o ConnectTimeout=20 ${sshUser}@${deployIp} "docker tag ${nexusImageName} ${imageName}:${version}"
-            ssh -p ${sshPort} -o ConnectTimeout=20 ${sshUser}@${deployIp} "docker rmi ${nexusImageName} || true"
+            ssh -p ${sshPort} ${SSH_OPTS} ${sshUser}@${deployIp} "docker rmi ${imageName}:${version} || true"
+            ssh -p ${sshPort} ${SSH_OPTS} ${sshUser}@${deployIp} "docker pull ${nexusImageName}"
+            ssh -p ${sshPort} ${SSH_OPTS} ${sshUser}@${deployIp} "docker tag ${nexusImageName} ${imageName}:${version}"
+            ssh -p ${sshPort} ${SSH_OPTS} ${sshUser}@${deployIp} "docker rmi ${nexusImageName} || true"
         """
         echo "✅ [${serviceName}] Imaj çekildi ve tag'lendi: ${imageName}:${version}"
     } else {
@@ -72,29 +123,28 @@ def call(Map config) {
             return
         }
 
-        // Sandbox'ta new File yasak; isim için basename kullan
+        // basename için ayri bir `sh` açmaya gerek yok — Groovy tarafında hesaplanır.
+        // (Sandbox'ta new File yasak olduğu için string işlemi kullanılıyor.)
         if (!destPath) {
-            env.DEPLOY_SRC_BASENAME = src
-            def baseName = sh(script: 'basename "${DEPLOY_SRC_BASENAME}"', returnStdout: true).trim()
+            def baseName = src.replaceAll(/\/+$/, '').tokenize('/').last()
             destPath = "/app/${appName}/${baseName}"
         }
 
-        // Kaynak dosya mı dizin mi kontrol et
-        env.DEPLOY_SRC_CHECK = src
-        def srcExists = sh(script: 'test -e "${DEPLOY_SRC_CHECK}"', returnStatus: true) == 0
-        if (!srcExists) {
+        // Varlık kontrolü Jenkins yerleşiği ile — kabuk açılmıyor.
+        if (!fileExists(src)) {
             // Dosya yoksa, .env dosyası için Git'ten geri almayı dene veya oluştur
-            if (src.toString().endsWith('.env')) {
+            if (src.endsWith('.env')) {
                 echo "⚠️ ${src} bulunamadı, Git'ten geri alınmaya çalışılıyor..."
-                env.DEPLOY_SRC_GIT = src
-                def gitCheckoutResult = sh(script: 'git checkout HEAD -- "${DEPLOY_SRC_GIT}" 2>&1', returnStatus: true)
-                if (gitCheckoutResult == 0 && sh(script: 'test -e "${DEPLOY_SRC_GIT}"', returnStatus: true) == 0) {
+                def gitCheckoutResult = 1
+                withEnv(["DS_ENV_FILE=${src}"]) {
+                    gitCheckoutResult = sh(script: 'git checkout HEAD -- "$DS_ENV_FILE" 2>&1', returnStatus: true)
+                }
+                if (gitCheckoutResult == 0 && fileExists(src)) {
                     echo "✅ ${src} Git'ten geri alındı"
                 } else {
                     // Git'te de yoksa, .env dosyasını oluştur (VERSION ile)
                     echo "📄 ${src} Git'te de bulunamadı, VERSION ile oluşturuluyor..."
-                    def envContent = "# Environment variables\nVERSION=${version}\n"
-                    writeFile file: src, text: envContent
+                    writeFile file: src, text: "# Environment variables\nVERSION=${version}\n"
                     echo "✅ ${src} oluşturuldu (VERSION=${version})"
                 }
             } else {
@@ -102,41 +152,69 @@ def call(Map config) {
                 return
             }
         }
-        
-        env.DEPLOY_SRC_ISDIR = src
-        def isDir = sh(script: 'test -d "${DEPLOY_SRC_ISDIR}"', returnStatus: true) == 0
+
+        // Dizin mi dosya mi: bunun için Jenkins yerleşiği yok, tek `sh` kalıyor.
+        def isDir = false
+        withEnv(["DS_SRC=${src}"]) {
+            isDir = (sh(script: 'test -d "$DS_SRC"', returnStatus: true) == 0)
+        }
         def srcType = isDir ? "dizin" : "dosya"
         echo "📦 Kaynak türü: ${srcType} (${src})"
-        
-        // Sunucuda hedef path'in mevcut durumunu kontrol et
-        env.DEPLOY_SSH_USER_CHECK = sshUser
-        env.DEPLOY_IP_CHECK = deployIp
-        env.DEPLOY_DEST_PATH_CHECK = destPath
-        def remoteExists = sh(script: 'ssh -p ${DEPLOY_SSH_PORT} -o ConnectTimeout=20 "${DEPLOY_SSH_USER_CHECK}@${DEPLOY_IP_CHECK}" "test -e ${DEPLOY_DEST_PATH_CHECK}"', returnStatus: true) == 0
-        if (remoteExists) {
-            def remoteIsDir = sh(script: 'ssh -p ${DEPLOY_SSH_PORT} -o ConnectTimeout=20 "${DEPLOY_SSH_USER_CHECK}@${DEPLOY_IP_CHECK}" "test -d ${DEPLOY_DEST_PATH_CHECK}"', returnStatus: true) == 0
+
+        // Sunucudaki hedefin durumu TEK ssh ile öğrenilir (önceden iki ayri bağlantı açılıyordu):
+        //   0 = yok, 1 = dosya olarak var, 2 = dizin olarak var
+        def remoteState = 0
+        withEnv([
+            "DS_SSH_TARGET=${sshUser}@${deployIp}",
+            "DS_SSH_PORT=${sshPort}",
+            "DS_SSH_OPTS=${SSH_OPTS}",
+            "DS_DEST=${destPath}"
+        ]) {
+            remoteState = sh(
+                script: 'ssh -p "$DS_SSH_PORT" $DS_SSH_OPTS "$DS_SSH_TARGET" "if [ -d \'$DS_DEST\' ]; then exit 2; elif [ -e \'$DS_DEST\' ]; then exit 1; else exit 0; fi"',
+                returnStatus: true
+            )
+        }
+
+        if (remoteState != 0) {
+            def remoteIsDir = (remoteState == 2)
             def remoteType = remoteIsDir ? "dizin" : "dosya"
-            
-            // Kaynak ve hedef türleri uyumsuzsa, hedefi temizle
+
+            // Kaynak ve hedef türleri uyumsuzsa, hedefi temizle (Docker mount hatalarını önler)
             if (isDir != remoteIsDir) {
                 echo "⚠️ Sunucuda ${destPath} ${remoteType} olarak mevcut, ${srcType} kopyalamak için temizleniyor..."
-                sh """
-                    ssh -p ${sshPort} -o ConnectTimeout=20 ${sshUser}@${deployIp} "rm -rf ${destPath}"
-                """
+                withEnv([
+                    "DS_SSH_TARGET=${sshUser}@${deployIp}",
+                    "DS_SSH_PORT=${sshPort}",
+                    "DS_SSH_OPTS=${SSH_OPTS}",
+                    "DS_DEST=${destPath}"
+                ]) {
+                    sh 'ssh -p "$DS_SSH_PORT" $DS_SSH_OPTS "$DS_SSH_TARGET" "rm -rf \'$DS_DEST\'"'
+                }
             }
         }
-        
+
         // Hedef path'i temizle (sonundaki / karakterlerini kaldır)
         def cleanDestPath = destPath.toString().replaceAll(/\/+$/, '')
-        
-        // Kaynağın türüne göre scp komutunu çalıştır
-        def scpFlags = isDir ? "-r" : ""
-        sh """
-            scp ${scpFlags} -P ${sshPort} -o ConnectTimeout=20 ${src} ${sshUser}@${deployIp}:${cleanDestPath}
-        """
+
+        // Kaynağın türüne göre scp. Yollar tirnak icinde: bosluk iceren dizin adları
+        // önceden komutu bölüp yanlış dosya kopyalanmasina yol açıyordu.
+        withEnv([
+            "DS_SSH_TARGET=${sshUser}@${deployIp}",
+            "DS_SSH_PORT=${sshPort}",
+            "DS_SSH_OPTS=${SSH_OPTS}",
+            "DS_SRC=${src}",
+            "DS_DEST=${cleanDestPath}"
+        ]) {
+            if (isDir) {
+                sh 'scp -r -P "$DS_SSH_PORT" $DS_SSH_OPTS "$DS_SRC" "$DS_SSH_TARGET:$DS_DEST"'
+            } else {
+                sh 'scp -P "$DS_SSH_PORT" $DS_SSH_OPTS "$DS_SRC" "$DS_SSH_TARGET:$DS_DEST"'
+            }
+        }
         echo "✅ ${srcType} kopyalandı: ${src} → ${cleanDestPath}"
     }
-    
+
     // .env dosyası oluştur/güncelle
     // envFile varsa kullan, yoksa VERSION veya extraEnvVars varsa otomatik oluştur
     def shouldCreateEnv = envFile || version || (extraEnvVars && extraEnvVars.size() > 0)
@@ -175,13 +253,22 @@ def call(Map config) {
         
         // Eğer envFile belirtilmişse: sunucudaki mevcut .env'i base al, üstüne merge et
         if (envFile) {
-            // Sunucudaki mevcut .env'i oku (önceki servislerin değişkenleri korunur)
-            env.DEPLOY_SSH_USER_ENV = sshUser
-            env.DEPLOY_IP_ENV = deployIp
-            env.DEPLOY_APP_NAME_ENV = appName
-            def remoteEnvExists = sh(script: 'ssh -p ${DEPLOY_SSH_PORT} -o ConnectTimeout=20 "${DEPLOY_SSH_USER_ENV}@${DEPLOY_IP_ENV}" "test -f /app/${DEPLOY_APP_NAME_ENV}/.env"', returnStatus: true) == 0
+            // Sunucudaki mevcut .env'i oku (önceki servislerin değişkenleri korunur).
+            // Değerler withEnv ile KAPSAMLI olarak geçirilir; global env'e yazılmaz.
+            def remoteEnvExists = false
+            def remoteContent = ''
+            withEnv([
+                "DS_SSH_TARGET=${sshUser}@${deployIp}",
+                "DS_SSH_PORT=${sshPort}",
+                "DS_SSH_OPTS=${SSH_OPTS}",
+                "DS_APP=${appName}"
+            ]) {
+                remoteEnvExists = sh(script: 'ssh -p "$DS_SSH_PORT" $DS_SSH_OPTS "$DS_SSH_TARGET" "test -f /app/$DS_APP/.env"', returnStatus: true) == 0
+                if (remoteEnvExists) {
+                    remoteContent = sh(script: 'ssh -p "$DS_SSH_PORT" $DS_SSH_OPTS "$DS_SSH_TARGET" "cat /app/$DS_APP/.env"', returnStdout: true).trim()
+                }
+            }
             if (remoteEnvExists) {
-                def remoteContent = sh(script: 'ssh -p ${DEPLOY_SSH_PORT} -o ConnectTimeout=20 "${DEPLOY_SSH_USER_ENV}@${DEPLOY_IP_ENV}" "cat /app/${DEPLOY_APP_NAME_ENV}/.env"', returnStdout: true).trim()
                 envFileContent = filterSystemEnvVars(remoteContent)
                 if (envFileContent && !envFileContent.endsWith('\n')) envFileContent += '\n'
                 echo "📄 Sunucudaki mevcut .env merge base olarak okundu: /app/${appName}/.env"
@@ -193,8 +280,10 @@ def call(Map config) {
                 localContent = readFile(envFile)
                 echo "📄 Yerel .env okundu: ${envFile}"
             } else {
-                env.DEPLOY_ENV_FILE_GIT = envFile
-                def gitCheckoutResult = sh(script: 'git checkout HEAD -- "${DEPLOY_ENV_FILE_GIT}" 2>&1', returnStatus: true)
+                def gitCheckoutResult = 1
+                withEnv(["DS_ENV_FILE=${envFile}"]) {
+                    gitCheckoutResult = sh(script: 'git checkout HEAD -- "$DS_ENV_FILE" 2>&1', returnStatus: true)
+                }
                 if (gitCheckoutResult == 0 && fileExists(envFile)) {
                     localContent = readFile(envFile)
                     echo "📄 Git'ten .env geri alındı: ${envFile}"
@@ -214,8 +303,9 @@ def call(Map config) {
                         def k = trimmed.substring(0, eqIdx).trim()
                         def v = trimmed.substring(eqIdx + 1)
                         def escapedK = k.replaceAll(/[.+*?^$()\[\]{}|\\]/, '\\\\$0')
+                        def safeReplacement = java.util.regex.Matcher.quoteReplacement("${k}=${v}")
                         if ((envFileContent =~ /(?m)^${escapedK}=/).find()) {
-                            envFileContent = envFileContent.replaceAll(/(?m)^${escapedK}=.*$/, "${k}=${v}")
+                            envFileContent = envFileContent.replaceAll(/(?m)^${escapedK}=.*$/, safeReplacement)
                         } else {
                             envFileContent += "${k}=${v}\n"
                         }
@@ -225,12 +315,21 @@ def call(Map config) {
             }
         } else {
             // envFile belirtilmemişse, sunucudaki mevcut .env dosyasını oku (başka kaynak yok)
-            env.DEPLOY_SSH_USER_ENV = sshUser
-            env.DEPLOY_IP_ENV = deployIp
-            env.DEPLOY_APP_NAME_ENV = appName
-            def remoteEnvExists = sh(script: 'ssh -p ${DEPLOY_SSH_PORT} -o ConnectTimeout=20 "${DEPLOY_SSH_USER_ENV}@${DEPLOY_IP_ENV}" "test -f /app/${DEPLOY_APP_NAME_ENV}/.env"', returnStatus: true) == 0
+            def remoteEnvExists = false
+            def remoteRaw = ''
+            withEnv([
+                "DS_SSH_TARGET=${sshUser}@${deployIp}",
+                "DS_SSH_PORT=${sshPort}",
+                "DS_SSH_OPTS=${SSH_OPTS}",
+                "DS_APP=${appName}"
+            ]) {
+                remoteEnvExists = sh(script: 'ssh -p "$DS_SSH_PORT" $DS_SSH_OPTS "$DS_SSH_TARGET" "test -f /app/$DS_APP/.env"', returnStatus: true) == 0
+                if (remoteEnvExists) {
+                    remoteRaw = sh(script: 'ssh -p "$DS_SSH_PORT" $DS_SSH_OPTS "$DS_SSH_TARGET" "cat /app/$DS_APP/.env"', returnStdout: true).trim()
+                }
+            }
             if (remoteEnvExists) {
-                envFileContent = sh(script: 'ssh -p ${DEPLOY_SSH_PORT} -o ConnectTimeout=20 "${DEPLOY_SSH_USER_ENV}@${DEPLOY_IP_ENV}" "cat /app/${DEPLOY_APP_NAME_ENV}/.env"', returnStdout: true).trim()
+                envFileContent = remoteRaw
                 if (!envFileContent) {
                     envFileContent = "# Environment variables\n"
                 } else {
@@ -297,7 +396,7 @@ def call(Map config) {
         
         // Sunucuya kopyala
         sh """
-            scp -P ${sshPort} -o ConnectTimeout=20 ${tempEnvFile} ${sshUser}@${deployIp}:/app/${appName}/.env
+            scp -P ${sshPort} ${SSH_OPTS} ${tempEnvFile} ${sshUser}@${deployIp}:/app/${appName}/.env
         """
         
         // Geçici dosyayı temizle (eğer otomatik oluşturulduysa)
@@ -306,25 +405,52 @@ def call(Map config) {
         }
     }
     
-    // docker-compose dosyasını kopyala (uzakta farklı bir isimle saklanabilir)
-    if (runCompose && !shouldRunComposeNow) {
-        echo "⏭️ [${serviceName}] compose daha önce çalıştı (composeOnceKey=${composeOnceKey}) → tekrar atlandı"
+    // docker-compose dosyasını kopyala (uzakta farklı bir isimle saklanabilir).
+    // Kopyalama compose'u çalıştırmaktan bağımsızdır: aynı host'a deploy olan servislerden sadece
+    // sonuncusu `up` çalıştırır, ama compose dosyası ilk servis sırasında yerine konmuş olmalıdır.
+    if (shouldCopyComposeNow) {
+        copiedComposeKeys << composeOnceKey
+        sh """
+            scp -P ${sshPort} ${SSH_OPTS} ${dockerComposeFile} ${sshUser}@${deployIp}:/app/${appName}/${dockerComposeRemoteFile}
+        """
+    } else {
+        echo "⏭️ [${serviceName}] compose dosyası zaten kopyalandı (composeOnceKey=${composeOnceKey}) → tekrar atlandı"
     }
 
     if (shouldRunComposeNow) {
         executedComposeKeys << composeOnceKey
+        // "down" kaldırıldı → tüm container'ları durdurup kaldırmak gereksiz kesinti yaratıyordu.
+        // "up -d" zaten sadece config/image'i değişen container'ı yeniden oluşturur.
+        // Sabit "sleep 15s" yerine "--wait": container'lar (healthcheck tanımlıysa healthy, yoksa
+        // running) olana kadar beklenir; olmazsa komut hata döner ve Jenkins adımı durur.
+        def waitArgs = composeWait ? resolveComposeWaitArgs(sshUser, sshPort, deployIp, composeWaitTimeout) : ""
+        if (composeWait && !waitArgs) {
+            echo "  ⚠️  --wait desteklenmiyor → `up -d` sonrası sağlık beklenmeyecek"
+        }
         sh """
-            scp -P ${sshPort} -o ConnectTimeout=20 ${dockerComposeFile} ${sshUser}@${deployIp}:/app/${appName}/${dockerComposeRemoteFile}
+            ssh -p ${sshPort} ${SSH_OPTS} ${sshUser}@${deployIp} "sudo chown -R ${sshUser}:${sshUser} /app/${appName}/"
+            ssh -p ${sshPort} ${SSH_OPTS} ${sshUser}@${deployIp} "cd /app/${appName} && docker compose -f ${dockerComposeRemoteFile} ${shouldCreateEnv ? '--env-file .env' : ''} up -d${waitArgs}"
+            ssh -p ${sshPort} ${SSH_OPTS} ${sshUser}@${deployIp} "cd /app/${appName}; docker compose logs --tail=100"
         """
-        
-        // Docker compose up
-        sh """
-            ssh -p ${sshPort} -o ConnectTimeout=20 ${sshUser}@${deployIp} "cd /app/${appName}; docker compose down || true"
-            ssh -p ${sshPort} -o ConnectTimeout=20 ${sshUser}@${deployIp} "sudo chown -R ${sshUser}:${sshUser} /app/${appName}/"
-            ssh -p ${sshPort} -o ConnectTimeout=20 ${sshUser}@${deployIp} "cd /app/${appName} && docker compose -f ${dockerComposeRemoteFile} ${shouldCreateEnv ? '--env-file .env' : ''} up -d"
-            sleep 15s
-            ssh -p ${sshPort} -o ConnectTimeout=20 ${sshUser}@${deployIp} "cd /app/${appName}; docker compose logs --tail=100"
-        """
+
+        // Aynı tag (ör. test-v1.0) tekrar deploy edildiğinde eski container yeni imaja geçer ve eski
+        // imaj hiçbir tag'e/container'a bağlı kalmaz (dangling) → burada temizlenir. "-a" YOK: başka
+        // bir tag'e bağlı imajlar (elle saklanan eski version'lar) hiç etkilenmez.
+        if (pruneDangling) {
+            sh """
+                ssh -p ${sshPort} ${SSH_OPTS} ${sshUser}@${deployIp} "docker image prune -f || true"
+            """
+        }
+
+        // pruneImages: opsiyonel. "-a" hiçbir container'ın kullanmadığı TÜM imajları siler (sadece
+        // dangling değil) — eski version tag'lerinin sunucuda sınırsız birikmesini engeller. Jenkins
+        // agent'ında değil yalnızca bu deploy host'unda çalışır; az önce ayağa kalkan container'lar
+        // "kullanımda" sayıldığı için güvenlidir.
+        if (pruneImages) {
+            sh """
+                ssh -p ${sshPort} ${SSH_OPTS} ${sshUser}@${deployIp} "docker image prune -a -f || true"
+            """
+        }
     } else {
         echo "⏭️ [${serviceName}] runCompose=false → docker compose adımı atlandı"
     }

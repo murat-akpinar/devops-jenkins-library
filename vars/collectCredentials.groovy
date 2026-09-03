@@ -5,7 +5,13 @@ def call() {
 ║  🔑  Credentials Toplanıyor
 ╚${bar}╝"""
 
-    def systemVarPrefixes = ['DO_', 'TAG_EXISTS_', 'JENKINS_', 'BUILD_', 'JOB_', 'NODE_', 'HUDSON_', 'GIT_', 'BRANCH_', 'CHANGE_', 'RUN_', 'STAGE_', 'SYSTEMD_']
+    def systemVarPrefixes = ['DO_', 'TAG_EXISTS_', 'JENKINS_', 'BUILD_', 'JOB_', 'NODE_', 'HUDSON_', 'GIT_', 'BRANCH_', 'CHANGE_', 'RUN_', 'STAGE_', 'SYSTEMD_',
+                     // Kütüphanenin kendi geçici değişkenleri — asla credential değildir
+                     'DEPLOY_', 'DS_', 'PS_', 'RT_',
+                     // Jenkinsfile'ın Initialize adımında set ettiği pipeline değişkenleri.
+                     // Tek tek listelemek yerine prefix: yeni bir GLOBAL_* eklendiğinde
+                     // denylist'i güncellemeyi unutmak sızıntıya yol açıyordu.
+                     'GLOBAL_', 'AGENT_']
     def systemVars = ['WORKSPACE', 'PWD', 'PATH', 'HOME', 'USER', 'SHELL', 'VERSION', 'APP',
                      'IP1', 'IP2', 'IP3', 'IP4', 'DEPLOY_TARGETS', 'PULL_EXISTING',
                      'NEXUS_URL', 'NEXUS_REGISTRY_URL', 'REGISTRY_PATH', 'SONAR_SERVER',
@@ -14,32 +20,62 @@ def call() {
                      'LESSOPEN', 'LESSCLOSE', 'MAIL', 'CI', 'SHLVL', 'OLDPWD', 'SUDO_GID', 'SUDO_UID',
                      'SUDO_USER', 'SUDO_COMMAND', 'LOGNAME', '_', 'TERM', 'LANG', 'LS_COLORS', 'XDG_DATA_DIRS',
                      'VERSION_TAG', 'FORCE_REBUILD', 'USE_EXISTING_IMAGE', 'ENVIRONMENT',
-                     'GLOBAL_TARGETS', 'RECIPIENT_EMAIL',
+                     'GLOBAL_TARGETS', 'GLOBAL_SSH_PORT', 'RECIPIENT_EMAIL', 'SERVICES_FILE',
+                     'DOCKER_COMPOSE_FILE', 'DOCKER_COMPOSE_REMOTE_FILE', 'DOTNET_ROOT',
                      'SYSTEMD_EXEC_PID', 'JOURNAL_STREAM', 'MEMORY_PRESSURE_WATCH', 'MEMORY_PRESSURE_WRITE',
-                     'INVOCATION_ID', 'JAVA_HOME']
+                     'INVOCATION_ID', 'JAVA_HOME',
+                     // Agent/container ortam değişkenleri. Bunlar deploy sunucusundaki .env'e
+                     // yazılırsa servisin kendi .env'indeki değeri EZİYOR: extraEnvVars yerel
+                     // .env merge'ünden SONRA uygulanıyor. Örn. agent'ın TZ'si projenin
+                     // TZ'sinin yerine geçiyordu.
+                     'HOSTNAME', 'TZ', 'HOSTTYPE', 'PS1', 'PS2', 'IFS']
 
     def credentialsMap = [:]
 
-    def envKeys = sh(script: 'env | grep -E "^[A-Z_]+=" | cut -d= -f1', returnStdout: true).trim()
+    // Önceki sürüm her environment değişkeni için AYRI bir `printenv` adımı açıyordu. Jenkins'te
+    // her `sh` bir Durable Task'tir (wrapper dosyası yazılır, process başlatılır, çıktı poll edilir);
+    // 40-60 değişkenle bu, build başına dakikalar demekti. Artık tek adımda okunuyor.
+    //
+    // Değerler base64'lenerek satır tabanlı hale getiriliyor: çok satırlı credential'lar
+    // (PEM anahtarı, sertifika, SSH key) düz `env` çıktısında ayrıştırılamaz — devam satırları
+    // yeni bir değişken sanılır ya da değer ilk satırda kesilir.
+    // `base64 | tr -d` hem GNU coreutils hem BusyBox'ta çalışır (`base64 -w0` yalnızca GNU'da).
+    //
+    // DİKKAT — davranış değişikliği: anahtar deseni artık `[A-Z_][A-Z_0-9]*`.
+    // Önceki sürüm `^[A-Z_]+=` kullanıyordu ve bu, adında RAKAM geçen değişkenleri
+    // (AWS_S3_SECRET, DB2_PASSWORD gibi) SESSİZCE ATLIYORDU — o credential'lar deploy
+    // sunucusundaki .env dosyasına hiç yazılmıyordu. Artık toplanıyorlar.
+    def dump = sh(returnStdout: true, script: '''
+        # Jenkins `sh` adımı varsayılan olarak `set -x` ile çalışır. Bu döngü her değişkenin
+        # DEĞERİNİ yazdırdığı için trace açık kalırsa tüm env değerleri (JENKINS_SECRET dahil)
+        # base64'lü halde build log'una düşer ve base64 maskeleme kapsamına girmez.
+        { set +x; } 2>/dev/null
+        for k in $(env | grep -E '^[A-Z_][A-Z_0-9]*=' | cut -d= -f1 | sort -u); do
+            printf '%s\\t%s\\n' "$k" "$(printenv "$k" | base64 | tr -d '\\n')"
+        done
+    ''')
 
-    if (envKeys) {
-        envKeys.split('\n').each { key ->
-            key = key.trim()
-            if (key && !key.isEmpty()) {
-                def isSystemVar = systemVarPrefixes.any { key.startsWith(it) } || systemVars.contains(key)
+    dump.split('\n').each { line ->
+        def idx = line.indexOf('\t')
+        if (idx <= 0) return
 
-                if (!isSystemVar) {
-                    try {
-                        def value = sh(script: "printenv ${key} || echo ''", returnStdout: true).trim()
+        def key = line.substring(0, idx).trim()
+        if (!key) return
 
-                        if (value && !value.isEmpty() && !value.matches(/^\*+$/) && value != '${' + key + '}') {
-                            credentialsMap[key] = value
-                        }
-                    } catch (Exception e) {
-                        // Değişken yoksa veya erişilemiyorsa atla
-                    }
-                }
+        def isSystemVar = systemVarPrefixes.any { key.startsWith(it) } || systemVars.contains(key)
+        if (isSystemVar) return
+
+        try {
+            def encoded = line.substring(idx + 1).trim()
+            if (!encoded) return
+            // .trim(): eski davranışla aynı — printenv'in eklediği son satır sonu atılır
+            def value = new String(encoded.decodeBase64(), 'UTF-8').trim()
+
+            if (value && !value.matches(/^\*+$/) && value != '${' + key + '}') {
+                credentialsMap[key] = value
             }
+        } catch (Exception e) {
+            // Çözülemeyen değeri atla
         }
     }
 

@@ -30,7 +30,9 @@ def call(String projectName, String grade = 'C') {
 
     def responseText = ''
     for (int attempt = 1; attempt <= retryCount; attempt++) {
-        sleep(retryDelay)
+        // Önce sorgula, sonra bekle. Önceki sürümde sleep döngünün basindaydi ve sonuc
+        // hazir olsa bile her gate koşulsuz olarak retryDelay kadar bekliyordu.
+        if (attempt > 1) { sleep(retryDelay) }
         responseText = sh(
             script: "ssh -o StrictHostKeyChecking=no ${sshUser}@${dockerScanHost} \"curl -sf 'http://localhost:${dashboardPort}/api/osv?project=${projectName}'\" || true",
             returnStdout: true
@@ -54,9 +56,49 @@ def call(String projectName, String grade = 'C') {
     }
 
     // /api/osv flat array döner: [{projectName, serviceName, tag, totalVulns, sources[]}, ...]
-    def scans = readJSON text: responseText
+    def allScans = readJSON text: responseText
+    def scans = allScans
+
+        // API ?project=X ile sorgulanıyor ve dönen dizi tüm taramaları içerebiliyor.
+        // Filtrelenmezse bir kez kötü not almış ESKİ bir tag sonraki tüm build'leri
+        // sınırsız süre fail ettirir. Bu build'in tag'ine ait kayıt varsa yalnızca onlar
+        // değerlendirilir; yoksa (API zaten yalnızca son taramayi döndürüyorsa) eskisi
+        // gibi tamamı kullanılır — iki API davranışında da doğru çalışır.
+        def currentTag = env.VERSION?.trim()
+        if (currentTag) {
+            def matching = allScans.findAll { it?.tag == currentTag }
+            if (matching) {
+                scans = matching
+                echo "  🏷️  Tag filtresi: ${currentTag} (${matching.size()}/${allScans.size()} kayıt)"
+            } else {
+                echo "  ⚠️  '${currentTag}' tag'ine ait kayıt yok → tüm kayıtlar değerlendiriliyor"
+            }
+        }
 
     def worstGrade = 'A'
+
+
+    // Dashboard aynı (servis, tag) için birden fazla kayıt tutabiliyor: her yeni koşu bir
+    // kayıt daha ekliyor. Hepsi değerlendirilirse ESKİ bir koşunun sonucu da nota giriyor
+    // (örneğin taramanın patladığı bir kosudan kalan "0 bulgu" kaydı). Servis başına
+    // yalnızca SON kayıt alınır; kayıtlar zaman damgasi taşıyorsa ona göre, taşımıyorsa
+    // dizideki son görünüme göre.
+    def latestByService = [:]
+    scans.each { sc ->
+        def svcKey = (sc?.serviceName ?: '?').toString()
+        def prev = latestByService[svcKey]
+        if (prev == null) {
+            latestByService[svcKey] = sc
+        } else {
+            def a = (sc?.timestamp ?: sc?.scannedAt ?: sc?.date ?: '').toString()
+            def b = (prev?.timestamp ?: prev?.scannedAt ?: prev?.date ?: '').toString()
+            latestByService[svcKey] = (a && b) ? ((a >= b) ? sc : prev) : sc
+        }
+    }
+    if (latestByService.size() < scans.size()) {
+        echo "  ♻️  Mükerrer kayıt: ${scans.size()} → ${latestByService.size()} (servis başına son tarama)"
+    }
+    scans = latestByService.values() as List
 
     echo "  ┌─ Servis Raporları"
     scans.each { scan ->
@@ -65,7 +107,7 @@ def call(String projectName, String grade = 'C') {
         if (gradeOrder[svcGrade] > gradeOrder[worstGrade]) {
             worstGrade = svcGrade
         }
-        echo "  │  ${scan.serviceName.padRight(20)} [${scan.tag}]  zafiyet: ${svcVulns}  → ${svcGrade}"
+        echo "  │  ${(scan.serviceName ?: '?').padRight(20)} [${scan.tag}]  zafiyet: ${svcVulns}  → ${svcGrade}"
     }
 
     echo """  └─ Özet
