@@ -51,7 +51,7 @@ def call(Map config) {
         env.DOCKER_COMPOSE_REMOTE_FILE?.trim() ?: (svc.docker_compose_remote_file ?: resolveComposeFile(svc))
     }
     def resolveSshUser = { svc ->
-        svc.ssh_user ?: env.DEPLOY_SSH_USER?.trim() ?: config.sshUser ?: 'your-user'
+        svc.ssh_user ?: env.DEPLOY_SSH_USER?.trim() ?: config.sshUser ?: globalConfig().DEPLOY_SSH_USER ?: 'your-user'
     }
     // Initialize stage'i environments.<ortam>.ssh_port değerini GLOBAL_SSH_PORT'a yazar
     def resolveSshPort = { svc ->

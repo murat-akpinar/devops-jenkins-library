@@ -7,7 +7,7 @@ def call(Map config) {
     def nexusUrl          = config.nexusUrl
     def nexusRegistryUrl  = config.nexusRegistryUrl ?: env.NEXUS_REGISTRY_URL ?: nexusUrl
     def registryPath      = config.registryPath
-    def sshUser           = config.sshUser ?: 'your-user'
+    def sshUser = config.sshUser ?: globalConfig().DEPLOY_SSH_USER ?: 'your-user'
     def sshPort           = config.sshPort ?: 22
     def nexusCredentialId = config.nexusCredentialId ?: env.NEXUS_CREDENTIAL_ID ?: 'Nexus_Credentials'
 

@@ -7,7 +7,7 @@ def call(Map config) {
     def registryPath      = config.registryPath
     def deployIp          = config.deployIp
     def testCommand       = config.testCommand ?: 'echo "Test komutu belirtilmedi"'
-    def sshUser           = config.sshUser ?: 'your-user'
+    def sshUser = config.sshUser ?: globalConfig().DEPLOY_SSH_USER ?: 'your-user'
     def sshPort           = config.sshPort ?: 22
     def nexusCredentialId = config.nexusCredentialId ?: env.NEXUS_CREDENTIAL_ID ?: 'Nexus_Credentials'
 

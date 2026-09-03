@@ -59,7 +59,24 @@ def call(String projectName, String grade = 'C') {
     }
 
     // /api/checkov flat array döner: [{projectName, serviceName, tag, passed, failed, ...}, ...]
-    def scans = readJSON text: responseText
+    def allScans = readJSON text: responseText
+    def scans = allScans
+
+        // API ?project=X ile sorgulaniyor ve donen dizi tum taramalari icerebiliyor.
+        // Filtrelenmezse bir kez kotu not almis ESKI bir tag sonraki tum build'leri
+        // sinirsiz sure fail ettirir. Bu build'in tag'ine ait kayit varsa yalnizca onlar
+        // degerlendirilir; yoksa (API zaten yalnizca son taramayi donduruyorsa) eskisi
+        // gibi tamami kullanilir — iki API davranisinda da dogru calisir.
+        def currentTag = env.VERSION?.trim()
+        if (currentTag) {
+            def matching = allScans.findAll { it?.tag == currentTag }
+            if (matching) {
+                scans = matching
+                echo "  🏷️  Tag filtresi: ${currentTag} (${matching.size()}/${allScans.size()} kayıt)"
+            } else {
+                echo "  ⚠️  '${currentTag}' tag'ine ait kayıt yok → tüm kayıtlar değerlendiriliyor"
+            }
+        }
 
     def totalPassed = 0
     def totalFailed = 0

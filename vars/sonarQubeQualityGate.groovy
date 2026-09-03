@@ -1,5 +1,9 @@
-def call() {
+def call(Map config = [:]) {
     def bar = '═' * 60
+    // Webhook hic gelmezse adim suresiz asili kalirdi; yalnizca job seviyesindeki timeout
+    // kurtarirdi (ornek Jenkinsfile'da 19999 sn ~ 5,5 saat) ve o sure boyunca bir executor
+    // tutuluyordu.
+    def timeoutMinutes = config.timeoutMinutes ?: 10
     echo """
 ╔${bar}╗
 ║  🎯  SonarQube Quality Gate Kontrol Ediliyor
@@ -7,7 +11,10 @@ def call() {
   ⏳ Sonuç bekleniyor..."""
 
     def t0 = System.currentTimeMillis()
-    def result = waitForQualityGate()
+    def result = null
+    timeout(time: timeoutMinutes, unit: 'MINUTES') {
+        result = waitForQualityGate()
+    }
     def elapsed = ((System.currentTimeMillis() - t0) / 1000).toInteger()
 
     if (result.status != 'OK') {

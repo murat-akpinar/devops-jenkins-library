@@ -52,7 +52,7 @@ def call(Map config) {
     def dockerComposeFile = config.dockerComposeFile ?: 'docker-compose.yml'
     def dockerComposeRemoteFile = config.dockerComposeRemoteFile ?: dockerComposeFile
     def envFile = config.envFile
-    def sshUser = config.sshUser ?: 'your-user'
+    def sshUser = config.sshUser ?: globalConfig().DEPLOY_SSH_USER ?: 'your-user'
     def sshPort = config.sshPort ?: 22
     def shouldPull = config.shouldPull ?: false
     def imageName = config.imageName ?: serviceName

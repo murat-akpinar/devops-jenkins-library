@@ -7,7 +7,9 @@ def call(String tag) {
     def nexusCredentialId = env.NEXUS_CREDENTIAL_ID ?: ''
 
     def bar = '═' * 60
-    def servicesConfig = readYaml file: 'services.yml'
+    // dockerCleanup/deployAllServices ile ayni: SERVICES_FILE env'i varsa o kullanilir
+    def servicesFile = env.SERVICES_FILE?.trim() ?: 'services.yml'
+    def servicesConfig = readYaml file: servicesFile
 
     echo """
 ╔${bar}╗
