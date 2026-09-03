@@ -30,7 +30,7 @@ def call(String projectName, String grade = 'C') {
 
     def responseText = ''
     for (int attempt = 1; attempt <= retryCount; attempt++) {
-        // Once sorgula, sonra bekle. Onceki surumde sleep dongunun basindaydi ve sonuc
+        // Önce sorgula, sonra bekle. Önceki sürümde sleep döngünün basindaydi ve sonuc
         // hazir olsa bile her gate koşulsuz olarak retryDelay kadar bekliyordu.
         if (attempt > 1) { sleep(retryDelay) }
         responseText = sh(

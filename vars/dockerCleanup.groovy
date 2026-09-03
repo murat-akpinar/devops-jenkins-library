@@ -4,9 +4,9 @@
 def call(Map config = [:]) {
     def keepVersion = (config.keepVersion?.toString()?.trim()) ?: env.VERSION?.trim()
     def servicesFile = config.servicesFile ?: (env.SERVICES_FILE?.trim() ?: 'services.yml')
-    // BuildKit cache'ini silmek varsayilan olarak KAPALI: buildAndPushService --cache-from ile
-    // cache'i calistirmaya ugrasirken burada her build'de silmek dogrudan celisiyordu.
-    // Disk baskisi olan agent'lar acabilir.
+    // BuildKit cache'ini silmek varsayılan olarak KAPALI: buildAndPushService --cache-from ile
+    // cache'i çalıştırmaya uğraşırken burada her build'de silmek doğrudan çelişiyordu.
+    // Disk baskısı olan agent'lar açabilir.
     def pruneBuilder = (config.pruneBuilder != null) ? (config.pruneBuilder.toString() == 'true') : false
     def bar = '═' * 60
     def t0 = System.currentTimeMillis()

@@ -55,14 +55,14 @@ def call(Map config) {
     }
     // Initialize stage'i environments.<ortam>.ssh_port değerini GLOBAL_SSH_PORT'a yazar
     def resolveSshPort = { svc ->
-        svc.ssh_port ?: (env.GLOBAL_SSH_PORT?.trim() ? env.GLOBAL_SSH_PORT.toInteger() : null) ?: config.sshPort ?: 22
+        svc.ssh_port ?: (env.GLOBAL_SSH_PORT?.trim() ? env.GLOBAL_SSH_PORT.toInteger() : null) ?: config.sshPort ?: globalConfig().DEPLOY_SSH_PORT ?: 22
     }
 
-    // Yalnizca deploy EDILECEK servisler onden cekilir. Onceki surum tum servisleri cekiyordu:
-    //  - degismemis servisin imaji bosuna indiriliyordu (ustelik pullService once `docker rmi` ile
-    //    dogru duran yerel kopyayi siliyor, yani her seferinde bastan cekiyordu),
-    //  - pullService hata durumunda `error` attigi icin, o VERSION icin hic push edilmemis bir
-    //    servis tum deploy'u dusuruyordu.
+    // Yalnizca deploy EDİLECEK servisler onden çekilir. Önceki sürüm tüm servisleri çekiyordu:
+    //  - değişmemiş servisin imajı boşuna indiriliyordu (üstelik pullService once `docker rmi` ile
+    //    doğru duran yerel kopyayı siliyor, yani her seferinde baştan çekiyordu),
+    //  - pullService hata durumunda `error` attığı için, o VERSION için hiç push edilmemiş bir
+    //    servis tüm deploy'u düşürüyordu.
     echo "📥 Deploy edilecek servis imajları önceden Nexus'tan çekiliyor..."
     servicesConfig.services.each { svc ->
         if (!isDeployingSvc(svc)) {

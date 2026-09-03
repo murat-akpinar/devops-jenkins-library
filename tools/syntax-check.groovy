@@ -1,16 +1,16 @@
-// vars/*.groovy sozdizimi kontrolu.
+// vars/*.groovy sözdizimi kontrolü.
 //
-// Neden gerekli: bu kutuphanede test yok ve tek dogrulama yolu gercek bir pipeline
-// calistirmakti. Groovy'de bir yazim hatasi ancak o fonksiyona ULASAN build'de patliyor —
-// Deploy stage'indeki bir hata 10 dakikalik build'in sonunda ortaya cikiyor.
+// Neden gerekli: bu kütüphanede test yok ve tek doğrulama yolu gerçek bir pipeline
+// çalıştırmaktı. Groovy'de bir yazım hatası ancak o fonksiyona ULAŞAN build'de patlıyor —
+// Deploy stage'indeki bir hata 10 dakikalık build'in sonunda ortaya çıkıyor.
 //
-// Nasil calisir: derleme yalnizca CONVERSION fazina kadar yurutulur (lexer + parser + AST).
-// Sinif cozumleme yapilmadigi icin Jenkins DSL cagrilari (sh, echo, withCredentials, readYaml…)
-// "cozulemeyen sinif" hatasi vermez; buna karsilik gercek sozdizimi hatalari yakalanir:
-// kapanmamis ayrac, hatali string kacisi, bozuk closure, eksik parantez.
+// Nasıl çalışır: derleme yalnızca CONVERSION fazına kadar yürütülür (lexer + parser + AST).
+// Sınıf çözümleme yapılmadığı için Jenkins DSL çağrıları (sh, echo, withCredentials, readYaml…)
+// "çözülemeyen sınıf" hatası vermez; buna karşılık gerçek sözdizimi hataları yakalanır:
+// kapanmamış ayraç, hatalı string kaçışı, bozuk closure, eksik parantez.
 //
-// Kullanim:  groovy tools/syntax-check.groovy
-// Cikis kodu: hatasizsa 0, en az bir dosya bozuksa 1.
+// Kullanım:  groovy tools/syntax-check.groovy
+// Çıkış kodu: hatasızsa 0, en az bir dosya bozuksa 1.
 
 import org.codehaus.groovy.control.CompilationUnit
 import org.codehaus.groovy.control.Phases

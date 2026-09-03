@@ -165,10 +165,10 @@ def call(Map config) {
 </body>
 </html>"""
     
-    // Build log'u tum takim listesine gidiyor ve komut trace'leri icerebiliyor.
-    // Varsayilan: yalnizca basarisiz/iptal build'lerde ekle (teshis icin gerekli olan yer orasi).
-    // Basarili deploy'un log'unu kimse okumuyor; her seferinde eklemek gereksiz maruziyet.
-    // config.attachLog ile acikca ezilebilir.
+    // Build log'u tüm takım listesine gidiyor ve komut trace'leri içerebiliyor.
+    // Varsayilan: yalnızca başarısız/iptal build'lerde ekle (teşhis için gerekli olan yer orası).
+    // Başarılı deploy'un log'unu kimse okumuyor; her seferinde eklemek gereksiz maruziyet.
+    // config.attachLog ile açıkça ezilebilir.
     def shouldAttachLog = (config.attachLog != null) ? (config.attachLog.toString() == 'true') : !isSuccess
 
     emailext(

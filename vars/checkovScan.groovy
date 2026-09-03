@@ -10,7 +10,7 @@ def call(String tag) {
     if (!enabled) { echo "⏭️  Checkov devre dışı, atlanıyor"; return }
 
     def bar = '═' * 60
-    // dockerCleanup/deployAllServices ile ayni: SERVICES_FILE env'i varsa o kullanilir
+    // dockerCleanup/deployAllServices ile aynı: SERVICES_FILE env'i varsa o kullanılır
     def servicesFile = env.SERVICES_FILE?.trim() ?: 'services.yml'
     def servicesConfig = readYaml file: servicesFile
     def appName = servicesConfig.app_name ?: error("❌ services.yml içinde 'app_name' tanımlı değil!")
@@ -46,9 +46,9 @@ def call(String tag) {
                 ssh ${SSH_OPTS} -o StrictHostKeyChecking=no ${sshUser}@${dockerScanHost} 'rm -rf /tmp/checkov-input/${imageName} && mkdir -p /tmp/checkov-input/${imageName}'
                 { set +x; } 2>/dev/null; printf '  │  [2/3] Kaynak dosyalar yükleniyor...\\n  │  ${servicePath}/ ──▶ ${sshUser}@${dockerScanHost}:/tmp/checkov-input/${imageName}/\\n'
                 { set -x; } 2>/dev/null
-                # scp -r tum dizini (node_modules, .git, build ciktilari ve .env dosyalari
-                # dahil) tarama sunucusuna gonderiyordu; hem yavasti hem de servis .env'i
-                # uzak /tmp'de kaliyordu. tar ile filtrelenip tek akista gonderiliyor.
+                # scp -r tüm dizini (node_modules, .git, build çıktıları ve .env dosyaları
+                # dahil) tarama sunucusuna gönderiyordu; hem yavaştı hem de servis .env'i
+                # uzak /tmp'de kalıyordu. tar ile filtrelenip tek akışta gönderiliyor.
                 tar -C \${WORKSPACE}/${servicePath} --exclude='.git' --exclude='.svn' --exclude='node_modules' --exclude='vendor' --exclude='bower_components' --exclude='dist' --exclude='build' --exclude='out' --exclude='target' --exclude='bin' --exclude='obj' --exclude='__pycache__' --exclude='.venv' --exclude='venv' --exclude='.tox' --exclude='.mypy_cache' --exclude='.pytest_cache' --exclude='.terraform' --exclude='.gradle' --exclude='.idea' --exclude='.vscode' --exclude='*.env' --exclude='.env' --exclude='.env.*' -cf - . |
                   | ssh ${SSH_OPTS} -o StrictHostKeyChecking=no ${sshUser}@${dockerScanHost} 'tar -C /tmp/checkov-input/${imageName} -xf -'
                 { set +x; } 2>/dev/null; printf '  │  [3/3] IaC güvenlik taraması çalıştırılıyor...\\n'

@@ -33,7 +33,7 @@ def call(String projectName, String grade = 'C') {
 
     def responseText = ''
     for (int attempt = 1; attempt <= retryCount; attempt++) {
-        // Once sorgula, sonra bekle. Onceki surumde sleep dongunun basindaydi ve sonuc
+        // Önce sorgula, sonra bekle. Önceki sürümde sleep döngünün basindaydi ve sonuc
         // hazir olsa bile her gate koşulsuz olarak retryDelay kadar bekliyordu.
         if (attempt > 1) { sleep(retryDelay) }
         responseText = sh(
@@ -62,11 +62,11 @@ def call(String projectName, String grade = 'C') {
     def allScans = readJSON text: responseText
     def scans = allScans
 
-        // API ?project=X ile sorgulaniyor ve donen dizi tum taramalari icerebiliyor.
-        // Filtrelenmezse bir kez kotu not almis ESKI bir tag sonraki tum build'leri
-        // sinirsiz sure fail ettirir. Bu build'in tag'ine ait kayit varsa yalnizca onlar
-        // degerlendirilir; yoksa (API zaten yalnizca son taramayi donduruyorsa) eskisi
-        // gibi tamami kullanilir — iki API davranisinda da dogru calisir.
+        // API ?project=X ile sorgulanıyor ve dönen dizi tüm taramaları içerebiliyor.
+        // Filtrelenmezse bir kez kötü not almış ESKİ bir tag sonraki tüm build'leri
+        // sınırsız süre fail ettirir. Bu build'in tag'ine ait kayıt varsa yalnızca onlar
+        // değerlendirilir; yoksa (API zaten yalnızca son taramayi döndürüyorsa) eskisi
+        // gibi tamamı kullanılır — iki API davranışında da doğru çalışır.
         def currentTag = env.VERSION?.trim()
         if (currentTag) {
             def matching = allScans.findAll { it?.tag == currentTag }

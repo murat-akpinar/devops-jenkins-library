@@ -1,7 +1,7 @@
 def call(Map config = [:]) {
     def bar = '═' * 60
-    // Webhook hic gelmezse adim suresiz asili kalirdi; yalnizca job seviyesindeki timeout
-    // kurtarirdi (ornek Jenkinsfile'da 19999 sn ~ 5,5 saat) ve o sure boyunca bir executor
+    // Webhook hiç gelmezse adım süresiz asılı kalırdı; yalnızca job seviyesindeki timeout
+    // kurtarırdı (örnek Jenkinsfile'da 19999 sn ~ 5,5 saat) ve o süre boyunca bir executor
     // tutuluyordu.
     def timeoutMinutes = config.timeoutMinutes ?: 10
     echo """

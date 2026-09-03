@@ -2,10 +2,10 @@ import groovy.transform.Field
 
 @Field Set executedComposeKeys = [] as Set
 @Field Set copiedComposeKeys = [] as Set
-// Host basina bir kez okunan `docker compose version` ciktisi (build omru boyunca cache'lenir)
+// Host başına bir kez okunan `docker compose version` çıktısı (build ömrü boyunca cache'lenir)
 @Field Map composeVersionByHost = [:]
 
-// "v2.24.5" -> 2024005 : karsilastirilabilir tek sayi. Parse edilemezse 0.
+// "v2.24.5" -> 2024005 : karşılaştırılabilir tek sayi. Parse edilemezse 0.
 def versionKey(String v) {
     def parts = (v ?: '').replaceAll('^[vV]', '').split('[^0-9]+').findAll { it }
     def a = parts.size() > 0 ? parts[0].toInteger() : 0
@@ -15,13 +15,13 @@ def versionKey(String v) {
 }
 
 // `docker compose up --wait` Compose >= 2.1.1, `--wait-timeout` >= 2.17 gerektiriyor.
-// Daha eski bir host'ta bu bayraklar "unknown flag" ile HER deploy'u kirardi. Host'un surumu
-// bir kez okunup, bayraklar yalnizca desteklendiginde ekleniyor; desteklenmiyorsa sessizce
-// eski davranisa (duz `up -d`) donuluyor. Surum okunamazsa da guvenli tarafta kaliniyor.
+// Daha eski bir host'ta bu bayraklar "unknown flag" ile HER deploy'u kırardı. Host'un sürümü
+// bir kez okunup, bayraklar yalnızca desteklendiğinde ekleniyor; desteklenmiyorsa sessizce
+// eski davranışa (düz `up -d`) dönülüyor. Sürüm okunamazsa da güvenli tarafta kalınıyor.
 def resolveComposeWaitArgs(String sshUser, def sshPort, String deployIp, def waitTimeout) {
     def hostKey = "${sshUser}@${deployIp}:${sshPort}"
     if (!composeVersionByHost.containsKey(hostKey)) {
-        // Bu metot call() disinda; SSH_OPTS orada tanimli oldugu icin burada yeniden alinir.
+        // Bu metot call() dışında; SSH_OPTS orada tanımlı olduğu için burada yeniden alınır.
         def sshOpts = sshOptions()
         def detected = sh(
             script: "ssh -p ${sshPort} ${sshOpts} ${sshUser}@${deployIp} 'docker compose version --short 2>/dev/null' || true",
@@ -52,8 +52,9 @@ def call(Map config) {
     def dockerComposeFile = config.dockerComposeFile ?: 'docker-compose.yml'
     def dockerComposeRemoteFile = config.dockerComposeRemoteFile ?: dockerComposeFile
     def envFile = config.envFile
-    def sshUser = config.sshUser ?: globalConfig().DEPLOY_SSH_USER ?: 'your-user'
-    def sshPort = config.sshPort ?: 22
+    def CFG = globalConfig()
+    def sshUser = config.sshUser ?: CFG.DEPLOY_SSH_USER ?: 'your-user'
+    def sshPort = config.sshPort ?: CFG.DEPLOY_SSH_PORT ?: 22
     def shouldPull = config.shouldPull ?: false
     def imageName = config.imageName ?: serviceName
     def extraFiles = config.extraFiles ?: [] // [{src: 'nginx.conf', dest: '/app/appname/nginx.conf'}, ...]
@@ -63,10 +64,10 @@ def call(Map config) {
     def pruneImages = (config.pruneImages != null ? config.pruneImages.toString() == 'true' : false)
     // `docker compose up --wait` için timeout (sn). Migration'ı uzun süren servisler yanlışlıkla fail olmasın diye geniş tutuldu.
     def composeWaitTimeout = config.composeWaitTimeout ?: 180
-    // `--wait`, isini yapip cikan (exit 0) container'larda hata dondurur — migration/init
-    // container'i olan projeler bunu kapatmak icin composeWait: false verir.
+    // `--wait`, işini yapip çıkan (exit 0) container'larda hata döndürür — migration/init
+    // container'i olan projeler bunu kapatmak için composeWait: false verir.
     def composeWait = (config.composeWait != null) ? (config.composeWait.toString() == 'true') : true
-    // Compose sonrasi dangling imaj temizligi. Host geneli calisir; kapatmak icin false.
+    // Compose sonrası dangling imaj temizliği. Host geneli çalışır; kapatmak için false.
     def pruneDangling = (config.pruneDangling != null) ? (config.pruneDangling.toString() == 'true') : true
     def composeOnceKey = config.composeOnceKey ?: "${appName}@${deployIp}:${dockerComposeRemoteFile}"
     def shouldCopyComposeNow = !copiedComposeKeys.contains(composeOnceKey)
@@ -120,14 +121,14 @@ def call(Map config) {
             return
         }
 
-        // basename icin ayri bir `sh` acmaya gerek yok — Groovy tarafinda hesaplanir.
-        // (Sandbox'ta new File yasak oldugu icin string islemi kullaniliyor.)
+        // basename için ayri bir `sh` açmaya gerek yok — Groovy tarafında hesaplanır.
+        // (Sandbox'ta new File yasak olduğu için string işlemi kullanılıyor.)
         if (!destPath) {
             def baseName = src.replaceAll(/\/+$/, '').tokenize('/').last()
             destPath = "/app/${appName}/${baseName}"
         }
 
-        // Varlik kontrolu Jenkins yerlesigi ile — kabuk acilmiyor.
+        // Varlık kontrolü Jenkins yerleşiği ile — kabuk açılmıyor.
         if (!fileExists(src)) {
             // Dosya yoksa, .env dosyası için Git'ten geri almayı dene veya oluştur
             if (src.endsWith('.env')) {
@@ -150,7 +151,7 @@ def call(Map config) {
             }
         }
 
-        // Dizin mi dosya mi: bunun icin Jenkins yerlesigi yok, tek `sh` kaliyor.
+        // Dizin mi dosya mi: bunun için Jenkins yerleşiği yok, tek `sh` kalıyor.
         def isDir = false
         withEnv(["DS_SRC=${src}"]) {
             isDir = (sh(script: 'test -d "$DS_SRC"', returnStatus: true) == 0)
@@ -158,7 +159,7 @@ def call(Map config) {
         def srcType = isDir ? "dizin" : "dosya"
         echo "📦 Kaynak türü: ${srcType} (${src})"
 
-        // Sunucudaki hedefin durumu TEK ssh ile ogrenilir (onceden iki ayri baglanti aciliyordu):
+        // Sunucudaki hedefin durumu TEK ssh ile öğrenilir (önceden iki ayri bağlantı açılıyordu):
         //   0 = yok, 1 = dosya olarak var, 2 = dizin olarak var
         def remoteState = 0
         withEnv([
@@ -194,8 +195,8 @@ def call(Map config) {
         // Hedef path'i temizle (sonundaki / karakterlerini kaldır)
         def cleanDestPath = destPath.toString().replaceAll(/\/+$/, '')
 
-        // Kaynağın türüne göre scp. Yollar tirnak icinde: bosluk iceren dizin adlari
-        // onceden komutu bolup yanlis dosya kopyalanmasina yol aciyordu.
+        // Kaynağın türüne göre scp. Yollar tirnak icinde: bosluk iceren dizin adları
+        // önceden komutu bölüp yanlış dosya kopyalanmasina yol açıyordu.
         withEnv([
             "DS_SSH_TARGET=${sshUser}@${deployIp}",
             "DS_SSH_PORT=${sshPort}",
@@ -251,7 +252,7 @@ def call(Map config) {
         // Eğer envFile belirtilmişse: sunucudaki mevcut .env'i base al, üstüne merge et
         if (envFile) {
             // Sunucudaki mevcut .env'i oku (önceki servislerin değişkenleri korunur).
-            // Degerler withEnv ile KAPSAMLI olarak gecirilir; global env'e yazilmaz.
+            // Değerler withEnv ile KAPSAMLI olarak geçirilir; global env'e yazılmaz.
             def remoteEnvExists = false
             def remoteContent = ''
             withEnv([
