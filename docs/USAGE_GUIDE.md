@@ -306,7 +306,7 @@ pipeline {
                         nexusRegistryUrl: env.NEXUS_REGISTRY_URL,
                         registryPath    : env.REGISTRY_PATH,
                         credentialsMap  : collectCredentials(),
-                        pruneImages     : false   // true removes every unused image on the deploy host
+                        pruneImages     : true    // removes old version tags of the images deployed in this build (default)
                     ])
                 }
             }

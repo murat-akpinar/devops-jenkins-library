@@ -52,7 +52,7 @@ def call(String projectName, String grade = 'C') {
 ║  ❌  OSV Quality Gate Başarısız  (${elapsed}s)
 ╚${bar}╝
   🔴 Hata : '${projectName}' için tarama kaydı bulunamadı"""
-        error "❌ '${projectName}' projesi için OSV tarama kaydı bulunamadı. Tarama başarıyla tamamlandı mı?"
+        error "❌ OSV tarama kaydı bulunamadı (proje adı yukarıdaki kutuda). Tarama başarıyla tamamlandı mı?"
     }
 
     // /api/osv flat array döner: [{projectName, serviceName, tag, totalVulns, sources[]}, ...]
@@ -127,7 +127,7 @@ def call(String projectName, String grade = 'C') {
 ║  ❌  OSV Quality Gate Başarısız  (${elapsed}s)
 ╚${bar}╝
   🔴 Proje Notu : ${worstGrade}  >  Eşik : ${grade}"""
-        error "⛔ [${projectName}] OSV Quality Gate başarısız — Proje notu: ${worstGrade}, Eşik: ${grade}"
+        error "⛔ OSV Quality Gate başarısız — Proje notu: ${worstGrade}, Eşik: ${grade}"
     }
 }
 

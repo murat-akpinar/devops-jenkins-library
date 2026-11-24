@@ -9,6 +9,12 @@ def call(Map config) {
     def registryPath = config.registryPath
     def jenkinsRegistry = config.jenkinsRegistry ?: env.HARBOR_REGISTRY ?: ''
     def envFile = config.envFile // opsiyonel
+    def buildArgs = config.buildArgs ?: [:] // opsiyonel: Dockerfile ARG'larına --build-arg olarak geçilir
+    def labels = config.labels ?: [:]       // opsiyonel: imaja --label olarak basılır (imageLabelOnNexus ile geri okunur)
+    def pullBase = (config.pullBase?.toString() == 'true') // opsiyonel: --pull, base imajı her build'de yenile
+    // --no-cache: config.noCache verilmezse FORCE_REBUILD parametresine düşer; böylece her projenin
+    // Jenkinsfile'ını elden geçirmeye gerek kalmaz (booleanParam env'e 'true'/'false' olarak gelir).
+    def noCache = config.containsKey('noCache') ? (config.noCache?.toString() == 'true') : (env.FORCE_REBUILD?.toString() == 'true')
     def nexusRepoCredentialId  = config.nexusRepoCredentialId ?: env.NEXUS_CREDENTIAL_ID ?: 'Nexus_Credentials'
     def harborCredentialId     = config.harborCredentialId ?: env.HARBOR_CREDENTIAL_ID ?: ''
     // latest tag'i push'lamak build cache'ini (--cache-from) besler; kapatmak için pushLatest: false
@@ -26,7 +32,9 @@ def call(Map config) {
         def content = ""
         if (fileExists(envPath)) {
             content = readFile(envPath)
-            if (content.contains("VERSION=")) {
+            // Satır başı şart: contains("VERSION=") API_VERSION= gibi bir satırda da true dönüyor,
+            // replaceAll hiçbir şeyi değiştirmiyor ve VERSION satırı hiç eklenmiyordu.
+            if ((content =~ /(?m)^VERSION=/).find()) {
                 content = content.replaceAll(/(?m)^VERSION=.*$/, "VERSION=${version}")
             } else {
                 content += (content.endsWith("\n") ? "" : "\n") + "VERSION=${version}\n"
@@ -61,7 +69,22 @@ def call(Map config) {
         _NEXUS_PASS_FILE=\$(mktemp)
         printf '%s' "\$NEXUS_REPO_USER" > "\$_NEXUS_USER_FILE"
         printf '%s' "\$NEXUS_REPO_PASS" > "\$_NEXUS_PASS_FILE"
-        _cleanup() { rm -f "\$_NEXUS_USER_FILE" "\$_NEXUS_PASS_FILE"; }
+    """ : ""
+
+    // Secret dosyaları ve build için üretilen .env TEK bir EXIT trap'inde silinir. Önceden
+    // `rm -f <envFile>` script'in sonundaydı: `set -e` yüzünden build/push başarısız olunca hiç
+    // çalışmıyor, .env workspace'te kalıyordu. envFile yolu cd'den önce absolute'a çevrilir.
+    def cleanupLines = []
+    if (useNexusAuth) { cleanupLines << 'rm -f "$_NEXUS_USER_FILE" "$_NEXUS_PASS_FILE"' }
+    if (hasEnvFile)   { cleanupLines << 'rm -f "$_ENV_FILE_ABS"' }
+
+    def envFileAbs = hasEnvFile ? """
+        _ENV_FILE_ABS="${envFile}"
+        case "\$_ENV_FILE_ABS" in /*) ;; *) _ENV_FILE_ABS="\$PWD/\$_ENV_FILE_ABS" ;; esac
+    """ : ""
+
+    def cleanupSetup = cleanupLines ? """
+        _cleanup() { ${cleanupLines.join('; ')}; }
         trap _cleanup EXIT
     """ : ""
 
@@ -71,11 +94,46 @@ def call(Map config) {
     // BUILDKIT_INLINE_CACHE=1 olmadan --cache-from sessizce ise yaramıyor: push edilen imajlar
     // inline cache metadata'si taşımadığı için BuildKit registry'den okuyacak bir şey bulamıyor.
     // Bu build-arg ile :latest artık cache metadata'si taşıyor ve --cache-from gerçekten çalışıyor.
-    def cacheArgs = "--cache-from ${cacheFrom} --build-arg BUILDKIT_INLINE_CACHE=1 "
+    def cacheArgs = noCache ? "" : "--cache-from ${cacheFrom} --build-arg BUILDKIT_INLINE_CACHE=1 "
+
+    // Değer tek tırnakta: boşluk ya da $ içeren bir değer shell'de bölünmesin/genişlemesin
+    def quoteArgs = { String flag, Map m ->
+        m.collect { k, v ->
+            def key = k?.toString()?.trim()
+            if (!key) { return null }
+            def value = (v == null) ? '' : v.toString()
+            "${flag} ${key}='${value.replace("'", "'\\''")}' "
+        }.findAll { it }.join('')
+    }
+
+    // Kaynak commit HER imaja otomatik basılır (standart OCI label'ı): "bu imaj hangi commit'ten
+    // build edildi?" sorusu registry'den cevaplanabilir; imageRevisionChanged bunu baseline olarak
+    // kullanır. Çağıran labels ile kendi değerini verirse o kazanır. Label imaj config'ine yazıldığı
+    // için layer cache'ini geçersiz kılmaz.
+    def revisionLabel = 'org.opencontainers.image.revision'
+    if (!labels.containsKey(revisionLabel)) {
+        def autoRevision = servicePathRevision(servicePath)
+        if (autoRevision) {
+            labels = [(revisionLabel): autoRevision] + labels
+        }
+    }
+
+    def buildArgsArg = quoteArgs('--build-arg', buildArgs)
+    def labelsArg    = quoteArgs('--label', labels)
+    if (buildArgsArg) { echo "  🔧 Build args : ${buildArgs.keySet().join(', ')}" }
+    if (labelsArg)    { echo "  🏷️ Label'lar : ${labels.keySet().join(', ')}" }
+
+    // --pull varsayılan KAPALI: agent'ta lokal build edilmiş (registry'de olmayan) bir base
+    // imajdan FROM alan projelerde --pull build'i düşürür.
+    def pullArg    = pullBase ? '--pull ' : ''
+    def noCacheArg = noCache ? '--no-cache ' : ''
+    if (noCache) { echo "  ♻️ Cache kapalı (--no-cache): tüm katmanlar yeniden build edilecek" }
+
+    def extraArgs = "${pullArg}${noCacheArg}${targetArg}${buildArgsArg}${labelsArg}"
 
     def dockerBuildCommand = useNexusAuth
-        ? "DOCKER_BUILDKIT=1 docker build ${cacheArgs}${targetArg}--secret id=nexus_user,src=\"\$_NEXUS_USER_FILE\" --secret id=nexus_pass,src=\"\$_NEXUS_PASS_FILE\" -t ${serviceName}:${version} -f ${dockerfile} ."
-        : "DOCKER_BUILDKIT=1 docker build ${cacheArgs}${targetArg}-t ${serviceName}:${version} -f ${dockerfile} ."
+        ? "DOCKER_BUILDKIT=1 docker build ${cacheArgs}${extraArgs}--secret id=nexus_user,src=\"\$_NEXUS_USER_FILE\" --secret id=nexus_pass,src=\"\$_NEXUS_PASS_FILE\" -t ${serviceName}:${version} -f ${dockerfile} ."
+        : "DOCKER_BUILDKIT=1 docker build ${cacheArgs}${extraArgs}-t ${serviceName}:${version} -f ${dockerfile} ."
 
     def shellScript = """
         set -e
@@ -89,7 +147,9 @@ def call(Map config) {
         { set +x; } 2>/dev/null; printf '  └─ ✅ ${envFile} mevcut\n'; { set -x; } 2>/dev/null
         """ : ""}
 
+        ${envFileAbs}
         ${secretSetup}
+        ${cleanupSetup}
 
         ${useNexusAuth ? """
         # Agent'ın Nexus oturumu. Bu adım BEST-EFFORT: başarısız olursa build DURMAZ.
@@ -139,10 +199,10 @@ def call(Map config) {
         { set +x; } 2>/dev/null; printf '  └─ ✅ Harbor push tamamlandı\n'; { set -x; } 2>/dev/null
         """ : ""}
 
-        cd ..
+        cd "\$OLDPWD" # 'cd ..' servicePath '.' ya da çok seviyeli olduğunda yanlış dizine çıkıyordu
 
-        # Build sonrası .env dosyasını temizle (güvenlik)
-        ${hasEnvFile ? "rm -f ${envFile}" : ""}
+        # Build için üretilen .env ve secret dosyaları yukarıdaki EXIT trap'inde silinir
+        # (başarısız build'de de çalışması için).
     """
 
     def bindings = []

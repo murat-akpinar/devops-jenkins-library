@@ -306,7 +306,7 @@ pipeline {
                         nexusRegistryUrl: env.NEXUS_REGISTRY_URL,
                         registryPath    : env.REGISTRY_PATH,
                         credentialsMap  : collectCredentials(),
-                        pruneImages     : false   // true → deploy host'unda kullanılmayan TÜM imajlar silinir
+                        pruneImages     : true    // bu build'de deploy edilen imajların eski sürüm tag'lerini siler (varsayılan)
                     ])
                 }
             }

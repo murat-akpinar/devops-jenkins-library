@@ -3,6 +3,10 @@
 // trivyQualityGate(env.APP, 'D')  →  A,B,C,D geçer; sadece F durdurur
 
 def call(String projectName, String grade = 'C') {
+    // error() mesajlarında PROJE ADI bilerek yok. Jenkins bağlı bir credential'ın DEĞERİNİ log'da
+    // nerede görürse maskeliyor; proje adı bir credential değeriyle çakışırsa (ör. RABBITMQ_USER
+    // proje adıyla aynı) ad [****] oluyor, error() AbortException yerine MaskedException fırlatıp
+    // mesaj yerine uzun bir Java stack trace basıyor. Ad zaten yukarıdaki kutularda echo ediliyor.
     def CFG          = globalConfig()
     def dockerScanHost    = CFG.DOCKERSCAN_HOST
     def sshUser      = CFG.DOCKERSCAN_SSH_USER
@@ -51,8 +55,8 @@ def call(String projectName, String grade = 'C') {
 ╔${bar}╗
 ║  ❌  Trivy Quality Gate Başarısız  (${elapsed}s)
 ╚${bar}╝
-  🔴 Hata : Dashboard ${retryCount * retryDelay}s içinde yanıt vermedi"""
-        error "❌ Trivy Dashboard API ${retryCount * retryDelay}s içinde yanıt vermedi: ${dashboardUrl}/api/grades?project=${projectName}"
+  🔴 Hata : Dashboard ${(retryCount - 1) * retryDelay}s içinde yanıt vermedi"""
+        error "❌ Trivy Dashboard API ${(retryCount - 1) * retryDelay}s içinde yanıt vermedi: ${dashboardUrl}/api/grades"
     }
 
     def response = readJSON text: responseText
@@ -65,7 +69,7 @@ def call(String projectName, String grade = 'C') {
 ╚${bar}╝
   🔴 Hata    : '${projectName}' projesi bulunamadı
   📋 Mevcut  : ${response.projects?.collect { it.projectName }}"""
-        error "❌ '${projectName}' projesi Trivy Dashboard'da bulunamadı. Mevcut: ${response.projects?.collect { it.projectName }}"
+        error "❌ Proje Trivy Dashboard'da bulunamadı — aranan ad ve mevcut projeler yukarıdaki kutuda."
     }
 
     def projectGrade = project.grade?.toUpperCase()
@@ -94,6 +98,6 @@ def call(String projectName, String grade = 'C') {
 ║  ❌  Trivy Quality Gate Başarısız  (${elapsed}s)
 ╚${bar}╝
   🔴 Proje Notu : ${projectGrade}  >  Eşik : ${grade}"""
-        error "⛔ [${projectName}] Trivy Quality Gate başarısız — Proje notu: ${projectGrade}, Eşik: ${grade}"
+        error "⛔ Trivy Quality Gate başarısız — Proje notu: ${projectGrade}, Eşik: ${grade}"
     }
 }

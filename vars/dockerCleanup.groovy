@@ -31,14 +31,40 @@ def call(Map config = [:]) {
     // yazmaya gerek yoktur — services.yml zaten hangi imajların bu projeye ait olduğunu bilir.
     // Agent paylaşımlı olduğu için başka projelerin veya base imajların (node, dotnet vb.)
     // imajlarına hiç dokunulmaz.
+    //
+    // grep -E desenine giren değerlerdeki regex metakarakterleri kaçırılır: 'test-v1.0' gibi bir
+    // VERSION'da '.' her karakteri eşler, ':test-v1.0$' deseni ':test-v1X0'ı da korurdu.
+    def escapeRe = { String v ->
+        v.replace('\\', '\\\\')
+         .replace('.', '\\.')
+         .replace('+', '\\+')
+         .replace('*', '\\*')
+         .replace('?', '\\?')
+         .replace('[', '\\[')
+         .replace(']', '\\]')
+         .replace('^', '\\^')
+         .replace('$', '\\$')
+         .replace('(', '\\(')
+         .replace(')', '\\)')
+         .replace('|', '\\|')
+         .replace('{', '\\{')
+         .replace('}', '\\}')
+    }
+
     if (keepVersion && fileExists(servicesFile)) {
         def servicesConfig = readYaml file: servicesFile
+        def keepRe = escapeRe(keepVersion.toString())
         servicesConfig.services.each { svc ->
             def imageName = svc.image_name ?: svc.name
+            def imageRe = escapeRe(imageName.toString())
             echo "  ┌─ [${imageName}] eski tag'ler temizleniyor (korunan: ${keepVersion})"
+            // --filter reference=<ad> yalnızca çıplak adı yakalıyordu; aynı imajın
+            // <registry>/repository/<repo>/<ad>:* ve <harbor>/<ad>:* tag'leri eşleşmiyor, rmi bir
+            // tag'i düşürüp imajı (ve diski) bırakıyordu.
             sh """
-                docker images --format '{{.Repository}}:{{.Tag}}' --filter 'reference=${imageName}' \
-                    | grep -v ':${keepVersion}\$' \
+                docker images --format '{{.Repository}}:{{.Tag}}' \\
+                    | grep -E '(^|/)${imageRe}:' \\
+                    | grep -v -E ':${keepRe}\$' \\
                     | xargs -r docker rmi -f || true
             """
         }
