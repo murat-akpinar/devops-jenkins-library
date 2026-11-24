@@ -54,7 +54,7 @@ def call(Map config) {
                 )]) {
                     sh '''
                         set -e
-                        if ssh -p "$PS_SSH_PORT" $PS_SSH_OPTS "$PS_SSH_TARGET" "grep -q '$PS_REGISTRY' ~/.docker/config.json 2>/dev/null"; then
+                        if ssh -p "$PS_SSH_PORT" $PS_SSH_OPTS "$PS_SSH_TARGET" "grep -qF '$PS_REGISTRY' ~/.docker/config.json 2>/dev/null"; then
                             echo "  ✅ Docker login mevcut: $PS_REGISTRY"
                         else
                             echo "  🔐 Docker login yapılıyor: $PS_REGISTRY"

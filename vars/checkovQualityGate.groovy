@@ -55,7 +55,7 @@ def call(String projectName, String grade = 'C') {
 ║  ❌  Checkov Quality Gate Başarısız  (${elapsed}s)
 ╚${bar}╝
   🔴 Hata : '${projectName}' için tarama kaydı bulunamadı"""
-        error "❌ '${projectName}' projesi için Checkov tarama kaydı bulunamadı. Tarama başarıyla tamamlandı mı?"
+        error "❌ Checkov tarama kaydı bulunamadı (proje adı yukarıdaki kutuda). Tarama başarıyla tamamlandı mı?"
     }
 
     // /api/checkov flat array döner: [{projectName, serviceName, tag, passed, failed, ...}, ...]
@@ -139,7 +139,7 @@ def call(String projectName, String grade = 'C') {
 ║  ❌  Checkov Quality Gate Başarısız  (${elapsed}s)
 ╚${bar}╝
   🔴 Proje Notu : ${worstGrade}  >  Eşik : ${grade}"""
-        error "⛔ [${projectName}] Checkov Quality Gate başarısız — Proje notu: ${worstGrade}, Eşik: ${grade}"
+        error "⛔ Checkov Quality Gate başarısız — Proje notu: ${worstGrade}, Eşik: ${grade}"
     }
 }
 

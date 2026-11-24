@@ -11,7 +11,13 @@ def call() {
                      // Jenkinsfile'ın Initialize adımında set ettiği pipeline değişkenleri.
                      // Tek tek listelemek yerine prefix: yeni bir GLOBAL_* eklendiğinde
                      // denylist'i güncellemeyi unutmak sızıntıya yol açıyordu.
-                     'GLOBAL_', 'AGENT_']
+                     'GLOBAL_', 'AGENT_',
+                     // sonarQubeAnalysis global env'e SONAR_USER_HOME yazıyor; .env'e sızmasın
+                     'SONAR_',
+                     // Agent'ın locale/araç ortamı. Hiçbiri credential değil ve deploy host'unun
+                     // .env'ine yazılırsa servisin kendi ayarını EZİYOR. DOTNET_ bilerek YOK: bir
+                     // .NET projesi DOTNET_ENVIRONMENT'ı meşru olarak .env'de isteyebilir.
+                     'LC_', 'XDG_', 'NVM_', 'npm_config_', 'MSBUILD']
     def systemVars = ['WORKSPACE', 'PWD', 'PATH', 'HOME', 'USER', 'SHELL', 'VERSION', 'APP',
                      'IP1', 'IP2', 'IP3', 'IP4', 'DEPLOY_TARGETS', 'PULL_EXISTING',
                      'NEXUS_URL', 'NEXUS_REGISTRY_URL', 'REGISTRY_PATH', 'SONAR_SERVER',
@@ -23,59 +29,62 @@ def call() {
                      'GLOBAL_TARGETS', 'GLOBAL_SSH_PORT', 'RECIPIENT_EMAIL', 'SERVICES_FILE',
                      'DOCKER_COMPOSE_FILE', 'DOCKER_COMPOSE_REMOTE_FILE', 'DOTNET_ROOT',
                      'SYSTEMD_EXEC_PID', 'JOURNAL_STREAM', 'MEMORY_PRESSURE_WATCH', 'MEMORY_PRESSURE_WRITE',
-                     'INVOCATION_ID', 'JAVA_HOME',
+                     'INVOCATION_ID', 'JAVA_HOME', 'CLASSPATH',
                      // Agent/container ortam değişkenleri. Bunlar deploy sunucusundaki .env'e
                      // yazılırsa servisin kendi .env'indeki değeri EZİYOR: extraEnvVars yerel
                      // .env merge'ünden SONRA uygulanıyor. Örn. agent'ın TZ'si projenin
                      // TZ'sinin yerine geçiyordu.
-                     'HOSTNAME', 'TZ', 'HOSTTYPE', 'PS1', 'PS2', 'IFS']
+                     'HOSTNAME', 'TZ', 'HOSTTYPE', 'PS1', 'PS2', 'IFS',
+                     // Agent'ın proxy ayarları servise taşınmasın
+                     'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'FTP_PROXY', 'ALL_PROXY',
+                     // sshagent(){} içinde çağrıldığında ortama giren ssh-agent değişkenleri:
+                     // agent'a özgü yol/PID taşıyorlar, .env'e yazılmaları bilgi sızdırır.
+                     'SSH_AUTH_SOCK', 'SSH_AGENT_PID', 'SSH_CONNECTION', 'SSH_CLIENT', 'SSH_TTY',
+                     // Geçici dizin ve terminal/locale artıkları
+                     'TMPDIR', 'TMP', 'TEMP', 'LANGUAGE', 'COLORTERM', 'DISPLAY']
 
     def credentialsMap = [:]
 
-    // Önceki sürüm her environment değişkeni için AYRI bir `printenv` adımı açıyordu. Jenkins'te
-    // her `sh` bir Durable Task'tir (wrapper dosyası yazılır, process başlatılır, çıktı poll edilir);
-    // 40-60 değişkenle bu, build başına dakikalar demekti. Artık tek adımda okunuyor.
+    // ADLAR tek bir `sh` adımından alınır (sh'a verilen env, environment{}/credentials()/withEnv
+    // dahil etkin ortamın tamamıdır), DEĞERLER `env."AD"` ile Groovy'den okunur. Değer shell'den
+    // hiç geçmiyor: base64/printenv yok, set -x sızıntısı yok, çok satırlı değer (PEM) bozulmuyor.
     //
-    // Değerler base64'lenerek satır tabanlı hale getiriliyor: çok satırlı credential'lar
-    // (PEM anahtarı, sertifika, SSH key) düz `env` çıktısında ayrıştırılamaz — devam satırları
-    // yeni bir değişken sanılır ya da değer ilk satırda kesilir.
-    // `base64 | tr -d` hem GNU coreutils hem BusyBox'ta çalışır (`base64 -w0` yalnızca GNU'da).
+    // env.getEnvironment() KULLANILMAZ: yalnızca temel ortam + env.X atamalarını döndürüyor,
+    // environment{} bloğu ve credentials() adım bağlamında durduğu için hiç gelmiyor → credential
+    // listesi boş kalıyor, .env'e yalnızca VERSION yazılıyordu. env."AD" adım bağlamını da okur.
+    // Önceki `env | base64` çözümü bazı agent'larda sessizce başarısızdı ("0 credential").
     //
-    // DİKKAT — davranış değişikliği: anahtar deseni artık `[A-Z_][A-Z_0-9]*`.
-    // Önceki sürüm `^[A-Z_]+=` kullanıyordu ve bu, adında RAKAM geçen değişkenleri
-    // (AWS_S3_SECRET, DB2_PASSWORD gibi) SESSİZCE ATLIYORDU — o credential'lar deploy
-    // sunucusundaki .env dosyasına hiç yazılmıyordu. Artık toplanıyorlar.
-    def dump = sh(returnStdout: true, script: '''
-        # Jenkins `sh` adımı varsayılan olarak `set -x` ile çalışır. Bu döngü her değişkenin
-        # DEĞERİNİ yazdırdığı için trace açık kalırsa tüm env değerleri (JENKINS_SECRET dahil)
-        # base64'lü halde build log'una düşer ve base64 maskeleme kapsamına girmez.
+    // Anahtar deseni `[A-Za-z_][A-Za-z_0-9]*`. Küçük harf ŞART: .NET anahtarları
+    // (ConnectionStrings__DefaultConnection, Jwt__SigningKey...) karışık harfli; eski `[A-Z_]...`
+    // deseni bunları sessizce eliyordu. Sistem değişkeni filtresi bu yüzden harf duyarsız.
+    // Çok satırlı bir değerin `AD=...` gibi görünen devam satırı sahte ad üretebilir; env."AD"
+    // null döner ve aşağıdaki boş değer kontrolü onu eler.
+    def adlar = sh(returnStdout: true, script: '''
         { set +x; } 2>/dev/null
-        for k in $(env | grep -E '^[A-Z_][A-Z_0-9]*=' | cut -d= -f1 | sort -u); do
-            printf '%s\\t%s\\n' "$k" "$(printenv "$k" | base64 | tr -d '\\n')"
-        done
-    ''')
+        env | sed -n 's/^\\([A-Za-z_][A-Za-z_0-9]*\\)=.*/\\1/p' | sort -u
+    ''').trim().split('\n')
+    def adayAnahtar = 0
+    def reddedilen = []   // yalnızca anahtar adı tutulur; değer asla loglanmaz
+    adlar.each { k ->
+        def key = k?.toString()?.trim()
+        if (!key || !(key ==~ /[A-Za-z_][A-Za-z_0-9]*/)) return
 
-    dump.split('\n').each { line ->
-        def idx = line.indexOf('\t')
-        if (idx <= 0) return
+        // Harf duyarsız (http_proxy == HTTP_PROXY). toUpperCase() değil equalsIgnoreCase:
+        // tr locale'li JVM'de "i" → "İ" olup eşleşmeyi bozar.
+        if (systemVarPrefixes.any { p -> key.length() >= p.length() && key.substring(0, p.length()).equalsIgnoreCase(p) } ||
+            systemVars.any { it.equalsIgnoreCase(key) }) return
 
-        def key = line.substring(0, idx).trim()
-        if (!key) return
+        def value = env."${key}"?.toString()?.trim()
+        // Boş değer credential adayı değildir (agent'ta CLASSPATH= gibi boş sistem değişkenleri
+        // var); aday sayılırsa credential'sız projelerde yanlış hata tetiklenirdi.
+        if (!value) return
+        adayAnahtar++
 
-        def isSystemVar = systemVarPrefixes.any { key.startsWith(it) } || systemVars.contains(key)
-        if (isSystemVar) return
-
-        try {
-            def encoded = line.substring(idx + 1).trim()
-            if (!encoded) return
-            // .trim(): eski davranışla aynı — printenv'in eklediği son satır sonu atılır
-            def value = new String(encoded.decodeBase64(), 'UTF-8').trim()
-
-            if (value && !value.matches(/^\*+$/) && value != '${' + key + '}') {
-                credentialsMap[key] = value
-            }
-        } catch (Exception e) {
-            // Çözülemeyen değeri atla
+        // Maskelenmiş (***) ya da çözümsüz (${AD}) değilse ekle
+        if (!value.matches(/^\*+$/) && value != '${' + key + '}') {
+            credentialsMap[key] = value
+        } else {
+            reddedilen << key
         }
     }
 
@@ -84,9 +93,20 @@ def call() {
   ┌─ Sonuç
   │  📋 Toplam    : ${credentialsMap.size()} credential
   └─ 🔑 Anahtarlar : ${credentialsMap.keySet().join(', ')}"""
+        if (reddedilen) {
+            echo "  ⚠️ Değeri maskeli/çözümsüz olduğu için atlanan: ${reddedilen.join(', ')}"
+        }
+    } else if (adayAnahtar > 0) {
+        // Aday anahtarlar var ama hepsi maskeli ya da çözümsüz. Eskiden yalnızca uyarı basılıp
+        // devam ediliyordu; deploy başarılı görünüp .env eksik yazılıyor, sebep günler sonra bulunuyordu.
+        error """⛔ ${adayAnahtar} credential adayı bulundu ama hiçbiri kullanılamadı — deploy durduruldu.
+  Atlanan anahtarlar : ${reddedilen.join(', ')}
+  ℹ️ Değerler maskeli (***) ya da çözümsüz (\${AD} biçiminde). Jenkinsfile environment{}
+     bloğunu ve credential ID'lerini kontrol edin."""
     } else {
+        // Meşru durum: projenin environment bloğunda hiç credential tanımlı değil.
         echo """
-  └─ ⚠️  Hiç credential bulunamadı. Environment bloğunda credentials tanımlı mı kontrol edin."""
+  └─ ℹ️  Credential tanımlı değil — .env yalnızca VERSION ile yazılacak."""
     }
 
     return credentialsMap

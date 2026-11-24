@@ -62,6 +62,10 @@ devops-jenkins-library/
 │   ├── sonarQubeQualityGate.groovy    # SonarQube Quality Gate
 │   ├── checkTagOnNexus.groovy         # Nexus tag kontrolü
 │   ├── checkDiff.groovy               # Git diff kontrolü
+│   ├── imageRevisionChanged.groovy    # Registry label'ına göre değişiklik kontrolü
+│   ├── imageLabelOnNexus.groovy       # Nexus'taki imajın label değerini okur
+│   ├── servicePathRevision.groovy     # Servis path'inin commit'i (submodule farkında)
+│   ├── buildLabel.groovy              # Build History'de "#42 prod-v1.2" etiketi
 │   ├── buildAndPushService.groovy     # Docker build & push
 │   ├── pullService.groovy             # Sunucuya Docker image pull
 │   ├── runTestsInContainer.groovy     # Container'da test çalıştırma
@@ -192,6 +196,8 @@ Tam örnek için: **[Example/Jenkins_example.groovy](Example/Jenkins_example.gro
 
 Ortak yapılandırmayı (Nexus, Harbor, SonarQube, Trivy) döndürür. `globalConfig.groovy` dosyasını kendi ortamınıza göre düzenleyin.
 
+> **Mükerrer build kontrolü:** İlk çağrıda aynı pipeline'ın hâlâ çalışan bir önceki build'i (son 20 build içinde) varsa build `error` ile durdurulur. Her Jenkinsfile `globalConfig()`'i Initialize'da çağırdığı için `disableConcurrentBuilds()` eklemeye gerek kalmaz. `env.VERSION` set edilmişse build adı da `#42 <VERSION>` olarak yazılır.
+
 **Dönen Değer:**
 ```groovy
 [
@@ -237,8 +243,11 @@ Pipeline `environment` bloğundaki credentials'ları otomatik olarak toplar.
 **Dönen Değer:** `Map<String, String>`
 
 **Özellikler:**
-- Sistem değişkenlerini otomatik filtreler (`JENKINS_*`, `BUILD_*`, `DO_*`, `GIT_*` vb.)
+- Sistem değişkenlerini otomatik filtreler (`JENKINS_*`, `BUILD_*`, `DO_*`, `GIT_*`, proxy, locale, ssh-agent vb.; harf duyarsız)
 - Manuel liste gerekmez
+- Değişken adları tek `sh` adımında alınır, değerler `env."AD"` ile Groovy'den okunur: değerler shell'den/log'dan geçmez, çok satırlı credential'lar (PEM, SSH key) bozulmaz
+- Karışık harfli anahtarlar desteklenir (.NET: `ConnectionStrings__DefaultConnection`)
+- Aday anahtarlar var ama hepsi maskeli (`***`) ya da çözümsüzse deploy `error` ile durur; hiç credential yoksa yalnızca bilgi verilir
 
 **Kullanım:**
 ```groovy
@@ -257,6 +266,13 @@ SonarQube kod analizi yapar. Akış, workspace içeriğine göre otomatik seçil
 
 - **`.sln` bulunursa → .NET akışı.** `dotnet sonarscanner begin` / `dotnet build` / `end` çalıştırılır. Repoda birden fazla `.sln` varsa manuel seçim gerekmez, hepsi tek analiz içinde build edilir. Proje anahtarı/adı ve exclusion değerleri `sonar-project.properties`'ten okunur; SonarScanner for .NET (v8+) bu dosyayı tanımadığı ve workspace'te görürse `end` adımında hata verdiği için, dosya analiz süresince geçici olarak kaldırılıp sonra geri konur. Tanımlı olmayan alanlar hiç geçilmez — boş bir `/d:` değeri "format geçersiz" uyarısına yol açıyor.
 - **`.sln` yoksa (PHP, Node, Python, …) → generic akış.** Düz `sonar-scanner` çalıştırılır; `sonar-project.properties` dosyasını kendisi okur.
+
+Ek davranışlar:
+- `.sln` yoksa `.slnx`, o da yoksa `*.csproj` aranır; csproj'lar geçici bir solution'a toplanıp **tek** build yapılır.
+- `sonar-project.properties` içindeki `\` ile devam eden çok satırlı değerler (ör. `sonar.exclusions`) .NET akışında da doğru okunur.
+- Scanner cache'i (`SONAR_USER_HOME`) agent kökünde tutulur, build'ler arası kalıcıdır. Scanner'ın gömülü Java 21+ JRE'si varsa JRE indirmesi atlanır.
+- `socketTimeout` 300 sn (büyük raporlar için). Projede `SONAR_VERBOSE = '1'` ile ayrıntılı log açılır.
+- `USE_EXISTING_IMAGE=true` iken analiz ve `sonarQubeQualityGate` atlanır.
 
 **Parametreler:**
 - `serverName` (String): Jenkins'te tanımlı SonarQube server adı
@@ -329,6 +345,43 @@ def changed = checkDiff(svc.path, env.GIT_PREVIOUS_SUCCESSFUL_COMMIT, env.GIT_CO
 def coklu   = checkDiff(['backend/', 'shared/'], prev, curr)   // birden fazla path
 ```
 
+`.gitmodules`'te submodule olarak tanımlı ama checkout edilmemiş bir path "değişti" kabul edilir (önceden sessizce "değişiklik yok" sayılıp servis hiç build edilmiyordu).
+
+---
+
+### `imageRevisionChanged(config)`
+
+`checkDiff`'e alternatif: baseline `GIT_PREVIOUS_SUCCESSFUL_COMMIT` değil, **registry'deki imaja basılmış** `org.opencontainers.image.revision` label'ıdır. `git submodule update --remote` kullanan (gitlink pointer'ı bump'lanmayan) repolarda `checkDiff` her build'de "değişti" der; bu fonksiyon o durumda doğru çalışır.
+
+`buildAndPushService` bu label'ı her imaja otomatik basar (`servicePathRevision` ile: submodule ise submodule'ün kendi HEAD'i, değilse superproject HEAD'i). Label yoksa, commit klonda bulunamıyorsa ya da registry'ye ulaşılamıyorsa `true` (build et) döner.
+
+```groovy
+def changed = imageRevisionChanged([
+    imageName       : imageName,
+    version         : env.VERSION,
+    path            : svc.path,
+    nexusRegistryUrl: env.NEXUS_REGISTRY_URL,
+    registryPath    : env.REGISTRY_PATH
+])
+```
+
+Yardımcılar: `imageLabelOnNexus(serviceName, version, labelKey, nexusRegistryUrl, registryPath[, credentialId])` imajın tek bir label değerini okur (yoksa `null`); `servicePathRevision(path)` path'in commit SHA'sını döndürür.
+
+---
+
+### `buildLabel(config = [:])`
+
+Build'in Jenkins arayüzündeki adını `#42 prod-v1.2`, açıklamasını `main · a1b2c3d` olarak yazar.
+
+- `version` (varsayılan: `env.VERSION`), `branch` (açıklamaya eklenir, `origin/` atılır), `sha` (varsayılan: `env.GIT_COMMIT`)
+
+Initialize aşamasının **başına**, build'i durdurabilecek `error` kontrollerinden önce konmalıdır; aksi halde o kontrolden düşen build etiketsiz kalır.
+
+```groovy
+env.VERSION = params.VERSION_TAG
+buildLabel()
+```
+
 ---
 
 ### `buildAndPushService(config)`
@@ -352,6 +405,10 @@ Docker imajını build edip Nexus ve opsiyonel olarak Harbor'a push eder.
 | `nexusRepoCredentialId` | ❌ | Nexus credential ID (varsayılan: `NEXUS_CREDENTIAL_ID`) |
 | `harborCredentialId` | ❌ | Harbor credential ID |
 | `pushLatest` | ❌ | `:latest` tag'i de push edilsin mi (varsayılan: `true`). `:latest`, `--cache-from` için kullanıldığından kapatmak build'leri soğutur. |
+| `buildArgs` | ❌ | `--build-arg` olarak geçilecek Map (services.yml: `build_args`). Ör. Next.js `NEXT_PUBLIC_*` |
+| `labels` | ❌ | `--label` olarak basılacak Map. `org.opencontainers.image.revision` verilmezse otomatik eklenir |
+| `pullBase` | ❌ | `--pull` ile base imajı her build'de yenile (varsayılan: `false`) |
+| `noCache` | ❌ | `--no-cache` (varsayılan: `FORCE_REBUILD` parametresi) |
 
 ```groovy
 buildAndPushService([
@@ -368,6 +425,8 @@ buildAndPushService([
     pushLatest       : svc.push_latest   // opsiyonel: false → :latest atlanır
 ])
 ```
+
+> Build için üretilen `.env` ve secret dosyaları `EXIT` trap'inde silinir — build başarısız olsa da workspace'te kalmaz.
 
 > `:latest` tag'i ve Harbor push'u, yerel kısa isimden değil az önce Nexus'a push edilen imaj referansından üretilir — paralel bir job veya cleanup, adımlar arasında yerel tag'i düşürebiliyor.
 
@@ -458,11 +517,14 @@ Servisi sunucuya deploy eder.
 | `sshPort` | ❌ | SSH portu (varsayılan: `22`) |
 | `runCompose` | ❌ | `docker compose up -d` çalıştır (varsayılan: `true`) |
 | `composeWaitTimeout` | ❌ | `docker compose up --wait` için `--wait-timeout` (saniye, varsayılan: `180`) |
-| `pruneImages` | ❌ | Compose sonrası deploy host'unda `docker image prune -a -f` çalıştır (varsayılan: `false`) |
+| `pruneImages` | ❌ | Compose sonrası deploy host'unda **yalnızca bu build'de deploy edilen imajların** eski sürüm tag'lerini sil (varsayılan: `true`). Container'ların kullandığı tag'lere dokunulmaz. |
+| `forceRecreate` | ❌ | `up -d --force-recreate` (varsayılan: `true`). Değişmeyen nginx'in eski upstream IP'sinde kalıp 502 vermesini önler. DB/Redis gibi yenilenmemesi gereken servis varsa `false` verin. |
 | `composeWait` | ❌ | `up -d --wait` kullan (varsayılan: `true`). İşini yapıp çıkan migration/init container'ı olan projelerde `false` verin — `--wait` böyle bir container'da hata döndürür. |
 | `pruneDangling` | ❌ | Compose sonrası dangling imajları temizle (varsayılan: `true`) |
 
 **Compose davranışı:** `docker compose down` artık çalıştırılmıyor — gereksiz kesinti yaratıyordu ve `up -d` zaten yalnızca config/imajı değişen container'ı yeniden oluşturuyor. Sabit `sleep` yerine `up -d --wait` kullanılıyor: container'lar healthy (healthcheck yoksa running) olana kadar beklenir, olmazsa adım hata verir. Compose'dan sonra `docker image prune -f` yalnızca yeni deploy'un dangling bıraktığı imajları siler; başka bir tag'e bağlı imajlara dokunulmaz. Compose dosyasının kopyalanması ile çalıştırılması ayrı takip edilir; aynı host'u paylaşan servislerde dosyayı ilk servis kopyalar, `up`ı yalnızca sonuncusu çalıştırır.
+
+Ek olarak: `--wait` erken "unhealthy" ile dönerse `composeWaitTimeout` dolana kadar durum tekrar yoklanır (yavaş açılan servisler yanlışlıkla fail olmaz); compose logları başarısızlıkta da basılır. Compose'daki `./dizin:/var/log/...` bind mount'ları için host dizini oluşturulur ve non-root container kullanıcısına `setfacl` ile yazma izni verilir (host'ta `acl` paketi gerekir). `extra_files` hedefi `rm -rf` için çok sığsa (`/app/<appName>` gibi) deploy durdurulur. `.env` değerleri çift tırnakla yazılır; `"`, `\`, `$` içeren şifreler bozulmaz.
 
 ```groovy
 deployService([
@@ -503,7 +565,7 @@ deployService([
 | `nexusCredentialId` | ❌ | Nexus credential ID (varsayılan: `NEXUS_CREDENTIAL_ID`) |
 | `credentialsMap` | ❌ | `.env`'e yazılacak credentials (`collectCredentials()` çıktısı) |
 | `servicesFile` | ❌ | services.yml yolu (varsayılan: `SERVICES_FILE` env ya da `services.yml`) |
-| `pruneImages` | ❌ | `deployService`'e aktarılır (varsayılan: `false`) |
+| `pruneImages` / `forceRecreate` | ❌ | `deployService`'e aktarılır (verilmezse onun varsayılanı: `true`) |
 | `sshUser` / `sshPort` | ❌ | Servis kendi değerini tanımlamadığında kullanılacak varsayılanlar |
 
 Hedef sunucular şu sırayla çözülür: `DEPLOY_TARGETS` env → servisin kendi `deploy_targets` alanı → `GLOBAL_TARGETS` (Initialize stage'inde `environments.<ortam>`'dan set edilir) → `IP1`..`IP4`.

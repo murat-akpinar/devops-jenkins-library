@@ -39,6 +39,10 @@ services:
     dockerfile: Dockerfile
     image_name: myapp_frontend
     env_file: frontend/.env
+    # opsiyonel: build time'da imaja gömülen değerler (Next.js NEXT_PUBLIC_* gibi). env_file build
+    # context'ine girmediği için bu değerler ancak build_args ile taşınabilir.
+    build_args:
+      NEXT_PUBLIC_DEPLOY_ENV: production
     push_latest: false              # opsiyonel: :latest tag'i push edilmesin (varsayılan: true)
 
 # ── Servis bazlı opsiyonel alanlar ──────────────────────────────────────────

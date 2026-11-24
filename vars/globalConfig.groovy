@@ -1,4 +1,29 @@
+import groovy.transform.Field
+
+@Field boolean mukerrerKontrolYapildi = false
+
 def call() {
+    // Mükerrer build kontrolü: her Jenkinsfile Initialize'da globalConfig() çağırdığı için kanca
+    // burada; her Jenkinsfile'a options { disableConcurrentBuilds() } eklemek gerekmiyor.
+    // currentBuild.rawBuild KULLANILAMAZ: kütüphane sandbox'ta, RejectedAccessException verir.
+    // Süren bir build'in result'ı null olur.
+    if (!mukerrerKontrolYapildi) {
+        mukerrerKontrolYapildi = true
+        def onceki = currentBuild.previousBuild
+        int bakilan = 0
+        while (onceki != null && bakilan < 20) {
+            if (onceki.result == null) {
+                error "⛔ Bu pipeline'da #${onceki.number} hâlâ çalışıyor → mükerrer build başlatılmadı."
+            }
+            onceki = onceki.previousBuild
+            bakilan++
+        }
+        // Build History listesi yalnız "#42" gösteriyor; sürüm biliniyorsa etikete yazılıyor.
+        if (env.VERSION) {
+            currentBuild.displayName = "#${env.BUILD_NUMBER} ${env.VERSION}"
+        }
+    }
+
     return [
 
         // ── Nexus ────────────────────────────────────────────────────────────

@@ -10,9 +10,8 @@ pipeline {
         string(name: 'VERSION_TAG', defaultValue: 'test-v1.0', description: 'Deploy edilecek imaj tag (örn: test-v1.0)')
     }
 
-    environment {
-        VERSION = "${params.VERSION_TAG ?: 'test-v1.0'}"
-    }
+    // VERSION bilerek environment{} içinde TANIMLANMIYOR: orada tanımlanan değer pipeline içinden
+    // env.VERSION = ... ile ezilemiyor. Sürüm aşağıda, Initialize aşamasında set ediliyor.
 
     options { timeout(time: 19999, unit: 'SECONDS') }
 
@@ -20,6 +19,9 @@ pipeline {
         stage('Initialize') {
             steps {
                 script {
+                    env.VERSION = (params.VERSION_TAG ?: '').trim() ?: 'test-v1.0'
+                    // Build History'de "#42 test-v1.0" görünsün. error() kontrollerinden ÖNCE çağrılmalı.
+                    buildLabel()
                     def CFG = globalConfig()
                     env.NEXUS_URL            = CFG.NEXUS_URL
                     env.NEXUS_REGISTRY_URL   = CFG.NEXUS_REGISTRY_URL ?: CFG.NEXUS_URL
@@ -115,6 +117,13 @@ pipeline {
                             }
                         }
                     }
+                    // Hiçbir servis build edilmeyecekse (tag mevcut, kodda değişiklik yok) deploy yine
+                    // de yapılır: aynı sürümü tekrar çıkarmak ve compose dosyasındaki değişiklikleri
+                    // uygulamak için. PULL_EXISTING=1 → deployAllServices mevcut imajlarla tüm servisleri deploy eder.
+                    if (!useExisting && servicesConfig.services.every { doFlag(normalizeKey(it.name)) == '0' }) {
+                        env.PULL_EXISTING = '1'
+                        echo "♻️ Hiçbir serviste değişiklik yok → build atlanacak, mevcut imajlarla deploy edilecek."
+                    }
                     echo "🔁 Final Karar:"
                     servicesConfig.services.each { svc ->
                         def key = normalizeKey(svc.name)
@@ -143,7 +152,8 @@ pipeline {
                                 jenkinsRegistry  : env.HARBOR_REGISTRY,
                                 envFile          : svc.env_file,
                                 target           : svc.target,        // opsiyonel: multi-stage Dockerfile stage'i
-                                pushLatest       : svc.push_latest    // opsiyonel: false → :latest push edilmez
+                                pushLatest       : svc.push_latest,   // opsiyonel: false → :latest push edilmez
+                                buildArgs        : svc.build_args ?: [:] // opsiyonel: Dockerfile ARG'ları
                             ])
                         } else {
                             echo "⏭️ [${svc.name}]: değişiklik yok — build & push atlanıyor."
@@ -211,7 +221,7 @@ pipeline {
                         nexusRegistryUrl: env.NEXUS_REGISTRY_URL,
                         registryPath    : env.REGISTRY_PATH,
                         credentialsMap  : collectCredentials(),
-                        pruneImages     : false   // true → deploy host'unda kullanılmayan TÜM imajlar silinir
+                        pruneImages     : true    // bu build'de deploy edilen imajların eski sürüm tag'lerini siler (varsayılan)
                     ])
                 }
             }

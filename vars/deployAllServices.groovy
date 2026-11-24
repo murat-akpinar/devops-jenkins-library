@@ -19,8 +19,11 @@ def call(Map config) {
     def registryPath = config.registryPath
     def nexusCredentialId = config.nexusCredentialId ?: env.NEXUS_CREDENTIAL_ID ?: 'Nexus_Credentials'
     def credentialsMap = config.credentialsMap ?: [:]
-    // opsiyonel: deploy host'unda kullanılmayan TÜM imajları temizler (varsayılan kapalı)
-    def pruneImages = config.pruneImages ?: false
+    // İkisi de null geçilir ki varsayılanı deployService belirlesin: Groovy'de `?: false` null ile
+    // false'ı ayırmadığı için parametre verilmese de açıkça false gidiyor, deployService'in
+    // varsayılanına (true) hiç ulaşılmıyordu.
+    def pruneImages = config.pruneImages     // opsiyonel: null → deployService varsayılanı (true)
+    def forceRecreate = config.forceRecreate // opsiyonel: null → deployService varsayılanı (true)
 
     def servicesConfig = readYaml file: servicesFile
 
@@ -92,10 +95,13 @@ def call(Map config) {
     // Her IP için o IP'ye deploy olan SON servisi bul; compose up her host'ta tam olarak bir kez
     // çalışsın. (Servisler farklı deploy_targets kullanabildiği için tek bir global "son servis"
     // yeterli değil.)
+    // Anahtar ip + compose dosyası: aynı host'ta farklı compose dosyası kullanan servisler varken
+    // yalnızca IP'ye göre "son servis" seçilince diğerinin compose'u hiç up edilmiyordu.
+    def composeKey = { svc, ip -> "${ip}:${resolveComposeRemoteFile(svc)}".toString() }
     def lastDeployingSvcByIp = [:]
     servicesConfig.services.each { svc ->
         if (!isDeployingSvc(svc)) return
-        resolveTargets(svc).each { ip -> lastDeployingSvcByIp[ip] = svc }
+        resolveTargets(svc).each { ip -> lastDeployingSvcByIp[composeKey(svc, ip)] = svc }
     }
 
     servicesConfig.services.each { svc ->
@@ -126,8 +132,9 @@ def call(Map config) {
                 shouldPull             : false,
                 sshUser                : resolveSshUser(svc),
                 sshPort                : resolveSshPort(svc),
-                runCompose             : (lastDeployingSvcByIp[ip] == svc),
+                runCompose             : (lastDeployingSvcByIp[composeKey(svc, ip)] == svc),
                 pruneImages            : pruneImages,
+                forceRecreate          : forceRecreate,
                 composeWait            : (config.composeWait != null) ? config.composeWait : true,
                 composeWaitTimeout     : config.composeWaitTimeout ?: 180,
                 pruneDangling          : (config.pruneDangling != null) ? config.pruneDangling : true

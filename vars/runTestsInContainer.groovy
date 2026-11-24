@@ -36,7 +36,10 @@ def call(Map config) {
         fi
 
         echo "🧪 Test başlatılıyor..."
-        if \$SSH "docker run --rm ${imageName} sh -c '${testCommand}'"; then
+        # Test komutu Groovy ile komut dizesine GÖMÜLMÜYOR, stdin ile aktarılıyor: içinde \$,
+        # backtick ya da tek tırnak geçen komut agent tarafında genişliyor/tırnakları kırıyordu.
+        # Test komutu TEK SATIR olmalıdır (uzak tarafta `read -r` bir satır okur).
+        if printf '%s\\n' "\$RT_CMD" | \$SSH 'read -r CMD; docker run --rm ${imageName} sh -c "\$CMD"'; then
             echo "✅ Tüm testler başarıyla tamamlandı"
         else
             TEST_EXIT=\$?
@@ -61,7 +64,7 @@ def call(Map config) {
             )]) {
                 sh '''
                     set -e
-                    if ssh -p "$RT_SSH_PORT" $RT_SSH_OPTS "$RT_SSH_TARGET" "grep -q '$RT_REGISTRY' ~/.docker/config.json 2>/dev/null"; then
+                    if ssh -p "$RT_SSH_PORT" $RT_SSH_OPTS "$RT_SSH_TARGET" "grep -qF '$RT_REGISTRY' ~/.docker/config.json 2>/dev/null"; then
                         echo "✅ Docker login mevcut: $RT_REGISTRY"
                     else
                         echo "🔐 Docker login yapılıyor: $RT_REGISTRY"
@@ -69,12 +72,12 @@ def call(Map config) {
                           ssh -p "$RT_SSH_PORT" $RT_SSH_OPTS "$RT_SSH_TARGET" 'read -r R; read -r U; read -r P; printf "%s" "$P" | docker login "$R" -u "$U" --password-stdin'
                     fi
                 '''
-                sh testCmds
+                withEnv(["RT_CMD=${testCommand}"]) { sh testCmds }
             }
         }
     } else {
         echo "ℹ️ Credential belirtilmedi → anonim pull"
-        sh testCmds
+        withEnv(["RT_CMD=${testCommand}"]) { sh testCmds }
     }
 
     echo "✅ [${serviceName}] Testler tamamlandı"

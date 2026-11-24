@@ -62,6 +62,10 @@ devops-jenkins-library/
 │   ├── sonarQubeQualityGate.groovy    # SonarQube Quality Gate
 │   ├── checkTagOnNexus.groovy         # Nexus tag check
 │   ├── checkDiff.groovy               # Git diff check
+│   ├── imageRevisionChanged.groovy    # Change check based on the registry label
+│   ├── imageLabelOnNexus.groovy       # Reads a label value of an image on Nexus
+│   ├── servicePathRevision.groovy     # Commit of a service path (submodule-aware)
+│   ├── buildLabel.groovy              # "#42 prod-v1.2" label in Build History
 │   ├── buildAndPushService.groovy     # Docker build & push
 │   ├── pullService.groovy             # Docker image pull to server
 │   ├── runTestsInContainer.groovy     # Run tests in container
@@ -192,6 +196,8 @@ Full example: **[Example/Jenkins_example.groovy](Example/Jenkins_example.groovy)
 
 Returns the shared configuration (Nexus, Harbor, SonarQube, Trivy). Edit `globalConfig.groovy` to match your environment.
 
+> **Duplicate build check:** on the first call, if a previous build of the same pipeline is still running (within the last 20 builds), the build is stopped with `error`. Since every Jenkinsfile calls `globalConfig()` in Initialize, there is no need to add `disableConcurrentBuilds()`. If `env.VERSION` is set, the build name becomes `#42 <VERSION>`.
+
 **Return value:**
 ```groovy
 [
@@ -237,8 +243,11 @@ Automatically collects credentials from the pipeline `environment` block.
 **Return value:** `Map<String, String>`
 
 **Features:**
-- Automatically filters system variables (`JENKINS_*`, `BUILD_*`, `DO_*`, `GIT_*`, etc.)
+- Automatically filters system variables (`JENKINS_*`, `BUILD_*`, `DO_*`, `GIT_*`, proxy, locale, ssh-agent, etc.; case-insensitive)
 - No manual list required
+- Variable names are read in a single `sh` step, values via `env."NAME"` from Groovy: values never pass through the shell/log, multi-line credentials (PEM, SSH keys) stay intact
+- Mixed-case keys are supported (.NET: `ConnectionStrings__DefaultConnection`)
+- If candidate keys exist but all are masked (`***`) or unresolved, the deploy stops with `error`; with no credentials at all it only logs an info line
 
 **Usage:**
 ```groovy
@@ -257,6 +266,13 @@ Runs SonarQube code analysis. The flow is chosen automatically from the workspac
 
 - **`.sln` found, .NET flow.** Runs `dotnet sonarscanner begin` / `dotnet build` / `end`. Every `.sln` is built inside a single analysis, so no manual selection is needed. Project key/name and the exclusion values are read from `sonar-project.properties`; SonarScanner for .NET (v8+) does not recognise that file and fails the `end` step if it sees it, so it is moved aside for the duration of the analysis and restored afterwards. Properties that are not defined are not passed at all, because an empty `/d:` value triggers an "invalid format" warning.
 - **No `.sln` (PHP, Node, Python, ...), generic flow.** Runs plain `sonar-scanner`, which reads `sonar-project.properties` itself.
+
+Additional behaviour:
+- Without `.sln`, `.slnx` is tried, then `*.csproj`; csproj files are collected into a temporary solution and built **once**.
+- Multi-line values continued with `\` in `sonar-project.properties` (e.g. `sonar.exclusions`) are read correctly in the .NET flow too.
+- The scanner cache (`SONAR_USER_HOME`) lives at the agent root and persists across builds. If the scanner ships an embedded Java 21+ JRE, JRE download is skipped.
+- `socketTimeout` is 300s (for large reports). Set `SONAR_VERBOSE = '1'` in the project for verbose logs.
+- With `USE_EXISTING_IMAGE=true`, analysis and `sonarQubeQualityGate` are skipped.
 
 **Parameters:**
 - `serverName` (String): SonarQube server name as defined in Jenkins
@@ -328,6 +344,43 @@ def changed = checkDiff(svc.path, env.GIT_PREVIOUS_SUCCESSFUL_COMMIT, env.GIT_CO
 def multi   = checkDiff(['backend/', 'shared/'], prev, curr)   // multiple paths
 ```
 
+A path declared as a submodule in `.gitmodules` but not checked out is treated as "changed" (previously it was silently treated as unchanged and the service was never built).
+
+---
+
+### `imageRevisionChanged(config)`
+
+Alternative to `checkDiff`: the baseline is not `GIT_PREVIOUS_SUCCESSFUL_COMMIT` but the `org.opencontainers.image.revision` label **stamped on the image in the registry**. In repos using `git submodule update --remote` (gitlink pointer never bumped), `checkDiff` reports "changed" on every build; this function handles that case correctly.
+
+`buildAndPushService` stamps this label on every image automatically (via `servicePathRevision`: the submodule's own HEAD for submodules, otherwise the superproject HEAD). Returns `true` (build) when the label is missing, the commit is not in the clone, or the registry is unreachable.
+
+```groovy
+def changed = imageRevisionChanged([
+    imageName       : imageName,
+    version         : env.VERSION,
+    path            : svc.path,
+    nexusRegistryUrl: env.NEXUS_REGISTRY_URL,
+    registryPath    : env.REGISTRY_PATH
+])
+```
+
+Helpers: `imageLabelOnNexus(serviceName, version, labelKey, nexusRegistryUrl, registryPath[, credentialId])` reads a single label value of an image (`null` if missing); `servicePathRevision(path)` returns the path's commit SHA.
+
+---
+
+### `buildLabel(config = [:])`
+
+Sets the build's display name in Jenkins to `#42 prod-v1.2` and its description to `main · a1b2c3d`.
+
+- `version` (default: `env.VERSION`), `branch` (added to the description, `origin/` stripped), `sha` (default: `env.GIT_COMMIT`)
+
+Call it at the **start** of the Initialize stage, before any `error` checks that may stop the build; otherwise a build that fails such a check stays unlabeled.
+
+```groovy
+env.VERSION = params.VERSION_TAG
+buildLabel()
+```
+
 ---
 
 ### `buildAndPushService(config)`
@@ -351,6 +404,10 @@ Builds a Docker image and pushes it to Nexus and optionally Harbor.
 | `nexusRepoCredentialId` | ❌ | Nexus credential ID (default: `NEXUS_CREDENTIAL_ID`) |
 | `harborCredentialId` | ❌ | Harbor credential ID |
 | `pushLatest` | ❌ | Also push the `:latest` tag (default: `true`). `:latest` feeds `--cache-from`, so turning it off makes builds colder. |
+| `buildArgs` | ❌ | Map passed as `--build-arg` (services.yml: `build_args`), e.g. Next.js `NEXT_PUBLIC_*` |
+| `labels` | ❌ | Map stamped as `--label`. `org.opencontainers.image.revision` is added automatically if not given |
+| `pullBase` | ❌ | `--pull` to refresh the base image on every build (default: `false`) |
+| `noCache` | ❌ | `--no-cache` (default: the `FORCE_REBUILD` parameter) |
 
 ```groovy
 buildAndPushService([
@@ -367,6 +424,8 @@ buildAndPushService([
     pushLatest       : svc.push_latest   // optional: false skips the :latest tag
 ])
 ```
+
+> The `.env` and secret files generated for the build are removed in an `EXIT` trap, so they don't stay in the workspace even if the build fails.
 
 > The `:latest` tag and the Harbor push are derived from the image reference just pushed to Nexus, not from the local short name, because a parallel job or a cleanup can drop the local tag between steps.
 
@@ -457,11 +516,14 @@ Deploys a service to the target server.
 | `sshPort` | ❌ | SSH port (default: `22`) |
 | `runCompose` | ❌ | Run `docker compose up -d` (default: `true`) |
 | `composeWaitTimeout` | ❌ | `--wait-timeout` for `docker compose up --wait`, in seconds (default: `180`) |
-| `pruneImages` | ❌ | Run `docker image prune -a -f` on the deploy host after compose (default: `false`) |
+| `pruneImages` | ❌ | After compose, remove old version tags of **only the images deployed in this build** on the deploy host (default: `true`). Tags used by containers are never touched. |
+| `forceRecreate` | ❌ | `up -d --force-recreate` (default: `true`). Prevents an unchanged nginx from keeping stale upstream IPs (502). Set `false` if the compose has DB/Redis that must not be recreated. |
 | `composeWait` | ❌ | Use `up -d --wait` (default: `true`). Set `false` for projects with a migration/init container that runs and exits — `--wait` fails on such a container. |
 | `pruneDangling` | ❌ | Prune dangling images after compose (default: `true`) |
 
 **Compose behaviour:** `docker compose down` is no longer run, because it caused unnecessary downtime and `up -d` already recreates only the containers whose config or image changed. Instead of a fixed `sleep`, `up -d --wait` waits until containers are healthy (or running, when no healthcheck is defined) and fails the step otherwise. After compose, `docker image prune -f` removes only images left dangling by the new deploy; images still bound to another tag are untouched. Copying the compose file and running it are tracked separately, so when several services share a host the file is copied by the first service while only the last one runs `up`.
+
+In addition: if `--wait` returns early with "unhealthy", the status is polled again until `composeWaitTimeout` expires (slow-starting services don't fail by mistake); compose logs are printed on failure too. For `./dir:/var/log/...` bind mounts in the compose file, the host directory is created and the non-root container user gets write access via `setfacl` (requires the `acl` package on the host). If an `extra_files` destination is too shallow for `rm -rf` (like `/app/<appName>`), the deploy is stopped. `.env` values are written in double quotes, so passwords containing `"`, `\` or `$` stay intact.
 
 ```groovy
 deployService([
@@ -502,7 +564,7 @@ Deploys every service in `services.yml` to its target hosts. It replaces the han
 | `nexusCredentialId` | ❌ | Nexus credential ID (default: `NEXUS_CREDENTIAL_ID`) |
 | `credentialsMap` | ❌ | Credentials written into `.env` (from `collectCredentials()`) |
 | `servicesFile` | ❌ | services.yml path (default: `SERVICES_FILE` env or `services.yml`) |
-| `pruneImages` | ❌ | Passed through to `deployService` (default: `false`) |
+| `pruneImages` / `forceRecreate` | ❌ | Passed through to `deployService` (if omitted, its default: `true`) |
 | `sshUser` / `sshPort` | ❌ | Fallbacks used when the service does not define its own |
 
 Target hosts are resolved in this order: `DEPLOY_TARGETS` env, the service's own `deploy_targets`, `GLOBAL_TARGETS` (set by the Initialize stage from `environments.<env>`), then `IP1`..`IP4`.

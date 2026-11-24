@@ -1,4 +1,9 @@
 def call(Map config = [:]) {
+    // Analiz USE_EXISTING_IMAGE'da atlanıyor; gate'in bekleyeceği sonuç olmadığı için o da atlanır.
+    if (env.USE_EXISTING_IMAGE?.toString() == 'true') {
+        echo "⏭️ USE_EXISTING_IMAGE aktif → SonarQube Quality Gate atlandı."
+        return
+    }
     def bar = '═' * 60
     // Webhook hiç gelmezse adım süresiz asılı kalırdı; yalnızca job seviyesindeki timeout
     // kurtarırdı (örnek Jenkinsfile'da 19999 sn ~ 5,5 saat) ve o süre boyunca bir executor
